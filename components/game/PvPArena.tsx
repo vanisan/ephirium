@@ -77,7 +77,11 @@ export const PvPArena: React.FC<PvPArenaProps> = ({ velocity }) => {
 
   const handleVictory = () => {
     useGameStore.setState(state => ({
-      player: { ...state.player, gold: state.player.gold + 1000 }
+      player: { 
+        ...state.player, 
+        gold: state.player.gold + 5000,
+        shards: state.player.shards + 5000
+      }
     }));
     saveGame();
   };
@@ -173,7 +177,7 @@ export const PvPArena: React.FC<PvPArenaProps> = ({ velocity }) => {
         </div>
         <div className="relative z-10">
           <h2 className="text-2xl font-cinzel font-bold text-[#d4af37] uppercase tracking-widest mb-2 italic">Арена Испытаний</h2>
-          <p className="text-[#e5d3b3]/60 text-sm max-w-xs sm:max-w-md">Побеждайте других героев в реальном времени и получайте 1000 золота за каждый триумф.</p>
+          <p className="text-[#e5d3b3]/60 text-sm max-w-xs sm:max-w-md">Побеждайте других героев в реальном времени и получайте 5000 золота и 5000 осколков за каждый триумф.</p>
         </div>
         <button 
           onClick={createRoom}
@@ -522,7 +526,10 @@ const ArenaBattlefield = React.memo(({ room, user, player, velocity, onLeave }: 
                   {room.winner === user?.uid ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ'}
                 </h3>
                 {room.winner === user?.uid && (
-                  <div className="text-green-500 text-xl font-bold tracking-[0.2em] mb-8">+1000 ЗОЛОТА</div>
+                  <div className="flex flex-col gap-2 mb-8">
+                    <div className="text-green-500 text-xl font-bold tracking-[0.2em]">+5000 ЗОЛОТА</div>
+                    <div className="text-blue-400 text-xl font-bold tracking-[0.2em]">+5000 ОСКОЛКОВ</div>
+                  </div>
                 )}
                 <button 
                   onClick={onLeave} 
