@@ -31,11 +31,18 @@ interface PvPArenaProps {
 }
 
 export const PvPArena: React.FC<PvPArenaProps> = ({ velocity }) => {
-  const { player, user, saveGame } = useGameStore();
+  const { player, user, saveGame, equipment } = useGameStore();
   const [rooms, setRooms] = useState<any[]>([]);
   const [currentRoom, setCurrentRoom] = useState<RoomData | null>(null);
   const [loading, setLoading] = useState(false);
   const rewardedRef = useRef(false);
+
+  const getWeaponType = () => {
+    const icon = equipment.weapon?.icon || 'sword';
+    if (icon.indexOf('bow') !== -1) return 'bow';
+    if (icon.indexOf('staff') !== -1) return 'staff';
+    return 'sword';
+  };
 
   // Listen for available rooms
   useEffect(() => {
@@ -66,7 +73,7 @@ export const PvPArena: React.FC<PvPArenaProps> = ({ velocity }) => {
       }
     });
     return () => unsubscribe();
-  }, [currentRoom?.id]);
+  }, [currentRoom?.id, user?.uid]);
 
   const handleVictory = () => {
     useGameStore.setState(state => ({
@@ -89,6 +96,7 @@ export const PvPArena: React.FC<PvPArenaProps> = ({ velocity }) => {
           maxHp: player.maxHp,
           stats: player.stats,
           skinColor: player.skinColor,
+          weaponType: getWeaponType(),
           x: 100,
           y: 200
         },
@@ -105,12 +113,12 @@ export const PvPArena: React.FC<PvPArenaProps> = ({ velocity }) => {
     }
   };
 
-  const joinRoom = async (room: any) => {
+  const joinRoom = async (roomData: any) => {
     if (!user) return;
     setLoading(true);
     rewardedRef.current = false;
     try {
-      await updateDoc(doc(db, 'rooms', room.id), {
+      await updateDoc(doc(db, 'rooms', roomData.id), {
         status: 'fighting',
         opponent: {
           uid: user.uid,
@@ -119,12 +127,13 @@ export const PvPArena: React.FC<PvPArenaProps> = ({ velocity }) => {
           maxHp: player.maxHp,
           stats: player.stats,
           skinColor: player.skinColor,
+          weaponType: getWeaponType(),
           x: 700,
           y: 200
         },
         updatedAt: serverTimestamp()
       });
-      setCurrentRoom(room);
+      setCurrentRoom(roomData);
     } catch (e) {
       console.error(e);
     } finally {
@@ -135,7 +144,11 @@ export const PvPArena: React.FC<PvPArenaProps> = ({ velocity }) => {
   const leaveRoom = async () => {
     if (!currentRoom || !user) return;
     if (currentRoom.host.uid === user.uid && currentRoom.status === 'waiting') {
-      await deleteDoc(doc(db, 'rooms', currentRoom.id));
+      try {
+        await deleteDoc(doc(db, 'rooms', currentRoom.id));
+      } catch (e) {
+        console.error(e);
+      }
     }
     setCurrentRoom(null);
   };
@@ -186,14 +199,14 @@ export const PvPArena: React.FC<PvPArenaProps> = ({ velocity }) => {
                 </div>
                 <div>
                   <h4 className="font-cinzel text-lg font-bold text-[#d4af37] tracking-widest">{room.host.name}</h4>
-                  <div className="text-[10px] text-[#e5d3b3]/40 uppercase tracking-widest pt-0.5">Уровень: {room.host.stats.level}</div>
+                  <div className="text-[10px] text-[#e5d3b3]/40 uppercase tracking-widest pt-0.5">Класс: {room.host.weaponType?.toUpperCase()}</div>
                 </div>
               </div>
               <button 
                 onClick={() => joinRoom(room)}
                 className="px-6 py-2 bg-[#d4af37]/10 border border-[#d4af37]/40 text-[#d4af37] font-cinzel font-bold hover:bg-[#d4af37] hover:text-black transition-all"
               >
-                ПРИСОЕДИНИТЬСЯ
+                ВСТУПИТЬ
               </button>
             </div>
           ))
@@ -209,17 +222,24 @@ const ArenaBattlefield = React.memo(({ room, user, player, velocity, onLeave }: 
   const requestRef = useRef<number>(0);
   const lastSyncTime = useRef<number>(0);
   const lastAttackTime = useRef<number>(0);
-  const [floatingTexts, setFloatingTexts] = useState<any[]>([]);
-  const floatingTextsRef = useRef<any[]>([]);
+  const projectilesRef = useRef<any[]>([]);
 
   const isHost = room?.host?.uid === user?.uid;
   const selfData = isHost ? room?.host : room?.opponent;
   const opponentData = isHost ? room?.opponent : room?.host;
 
-  // Local state for smooth movement
   const myPos = useRef({ x: selfData?.x || 100, y: selfData?.y || 200 });
   const oppPos = useRef({ x: opponentData?.x || 400, y: opponentData?.y || 200 });
   
+  const getClassConfig = (type: string) => {
+    switch (type) {
+      case 'bow': return { range: 250, color: '#4ade80', projectileColor: '#4ade80', isRanged: true };
+      case 'staff': return { range: 200, color: '#60a5fa', projectileColor: '#fbbf24', isRanged: true, lifesteal: 0.15 };
+      default: return { range: 60, color: '#f87171', isRanged: false, defenseBonus: 1.2 };
+    }
+  };
+
+  const myConfig = getClassConfig(selfData?.weaponType);
 
   useEffect(() => {
     if (selfData) {
@@ -231,12 +251,12 @@ const ArenaBattlefield = React.memo(({ room, user, player, velocity, onLeave }: 
     if (opponentData) {
       oppPos.current = { x: opponentData.x, y: opponentData.y };
     }
-  }, [opponentData?.x, opponentData?.y]);
+  }, [opponentData?.x, opponentData?.y, opponentData?.uid]);
 
   const updateServerState = async (newPos: { x: number, y: number }, attack?: any) => {
     if (!selfData || !user || !room?.id) return;
     const now = Date.now();
-    if (now - lastSyncTime.current < 100 && !attack) return; // Throttle position updates
+    if (now - lastSyncTime.current < 100 && !attack) return; 
     lastSyncTime.current = now;
 
     const roomRef = doc(db, 'rooms', room.id);
@@ -248,13 +268,24 @@ const ArenaBattlefield = React.memo(({ room, user, player, velocity, onLeave }: 
     
     if (attack) {
       update.lastAction = attack;
-      // Handle damage calculation (simple version)
       const targetPath = isHost ? 'opponent' : 'host';
       const target = isHost ? room.opponent : room.host;
       if (target) {
-        const damage = Math.max(1, Math.floor((player?.stats?.damage || 1) * (0.8 + Math.random() * 0.4)));
+        let damage = Math.max(1, Math.floor((player?.stats?.damage || 1) * (0.8 + Math.random() * 0.4)));
+        
+        if (selfData.weaponType === 'bow' && Math.random() < 0.2) damage *= 1.5;
+        
+        const targetDefense = (target.stats?.defense || 0) * (target.weaponType === 'sword' ? 1.2 : 1);
+        damage = Math.max(1, damage - Math.floor(targetDefense * 0.3));
+
         const newHp = Math.max(0, target.hp - damage);
         update[`${targetPath}.hp`] = newHp;
+
+        if (selfData.weaponType === 'staff') {
+          const lifesteal = Math.floor(damage * 0.15);
+          update[`${path}.hp`] = Math.min(selfData.maxHp, selfData.hp + lifesteal);
+        }
+
         if (newHp <= 0) {
           update.status = 'finished';
           update.winner = user.uid;
@@ -275,67 +306,33 @@ const ArenaBattlefield = React.memo(({ room, user, player, velocity, onLeave }: 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const gameLoop = () => {
-      if (room.status !== 'fighting') return;
-
-      // 1. UPDATE SELF POSITION
-      const speed = 5;
-      const currentVel = velocity.current || { x: 0, y: 0 };
-      const nextX = Math.max(20, Math.min(780, myPos.current.x + currentVel.x * speed));
-      const nextY = Math.max(20, Math.min(380, myPos.current.y + currentVel.y * speed));
-      
-      if (nextX !== myPos.current.x || nextY !== myPos.current.y) {
-        myPos.current = { x: nextX, y: nextY };
-        updateServerState(myPos.current);
-      }
-
-      // 2. CHECK ATTACK RANGE
-      if (opponentData && room.status === 'fighting') {
-        const dx = oppPos.current.x - myPos.current.x;
-        const dy = oppPos.current.y - myPos.current.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        const now = Date.now();
-        
-        if (dist < 60 && now - lastAttackTime.current > 1000 / (player?.stats?.atkSpeed || 1)) {
-          lastAttackTime.current = now;
-          updateServerState(myPos.current, { uid: user.uid, type: 'attack' });
-        }
-      }
-
-      // 3. RENDER
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
-      // Grid
-      ctx.strokeStyle = 'rgba(212, 175, 55, 0.05)';
-      ctx.lineWidth = 1;
-      for(let i=0; i<canvas.width; i+=40) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke(); }
-      for(let i=0; i<canvas.height; i+=40) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke(); }
-
-      // Draw Opponent
-      if (opponentData) {
-        drawPlayer(ctx, oppPos.current.x, oppPos.current.y, opponentData, false);
-      }
-
-      // Draw Self
-      drawPlayer(ctx, myPos.current.x, myPos.current.y, selfData, true);
-
-      requestRef.current = requestAnimationFrame(gameLoop);
-    };
-
     const drawPlayer = (ctx: CanvasRenderingContext2D, x: number, y: number, data: any, isSelf: boolean) => {
       if (!data) return;
-      // Shadow
+      
+      const config = (function(type: string) {
+        switch (type) {
+          case 'bow': return { range: 250, color: '#4ade80' };
+          case 'staff': return { range: 200, color: '#60a5fa' };
+          default: return { range: 60, color: '#f87171' };
+        }
+      })(data.weaponType);
+
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
       ctx.beginPath();ctx.ellipse(x, y + 25, 15, 8, 0, 0, Math.PI * 2);ctx.fill();
 
-      // Body
+      ctx.strokeStyle = config.color + '22';
+      ctx.beginPath();ctx.arc(x, y, config.range, 0, Math.PI * 2);ctx.stroke();
+
       ctx.fillStyle = data.skinColor || '#e5c298';
       ctx.beginPath();ctx.arc(x, y, 15, 0, Math.PI * 2);ctx.fill();
       ctx.strokeStyle = isSelf ? '#d4af37' : '#ff4444';
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // HP Bar
+      ctx.strokeStyle = config.color + '88';
+      ctx.lineWidth = 1;
+      ctx.beginPath();ctx.arc(x, y, 18, 0, Math.PI * 2);ctx.stroke();
+
       const barWidth = 40;
       const hpRatio = data.hp / data.maxHp;
       ctx.fillStyle = '#111';
@@ -343,16 +340,110 @@ const ArenaBattlefield = React.memo(({ room, user, player, velocity, onLeave }: 
       ctx.fillStyle = isSelf ? '#22ff22' : '#ff2222';
       ctx.fillRect(x - barWidth/2, y - 35, barWidth * hpRatio, 4);
 
-      // Name
       ctx.fillStyle = '#e5d3b3';
       ctx.font = '10px Cinzel';
       ctx.textAlign = 'center';
       ctx.fillText(data.name, x, y - 45);
+      
+      ctx.fillStyle = config.color;
+      ctx.font = '8px Cinzel';
+      ctx.fillText(data.weaponType?.toUpperCase(), x, y + 42);
+    };
+
+    const gameLoop = () => {
+      if (room.status !== 'fighting') return;
+
+      const speed = 5;
+      const currentVel = velocity.current || { x: 0, y: 0 };
+      
+      let nextX = myPos.current.x;
+      let nextY = myPos.current.y;
+
+      if (currentVel.x !== 0 || currentVel.y !== 0) {
+        nextX = Math.max(20, Math.min(780, myPos.current.x + currentVel.x * speed));
+        nextY = Math.max(20, Math.min(380, myPos.current.y + currentVel.y * speed));
+      } else if (opponentData && room.status === 'fighting') {
+        const dx = oppPos.current.x - myPos.current.x;
+        const dy = oppPos.current.y - myPos.current.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const targetDist = myConfig.range * 0.8;
+        
+        if (myConfig.isRanged) {
+          if (dist < targetDist * 0.7) {
+            nextX -= (dx/dist) * (speed * 0.5);
+            nextY -= (dy/dist) * (speed * 0.5);
+          } else if (dist > targetDist) {
+            nextX += (dx/dist) * (speed * 0.5);
+            nextY += (dy/dist) * (speed * 0.5);
+          }
+        } else {
+          if (dist > 40) {
+            nextX += (dx/dist) * (speed * 0.8);
+            nextY += (dy/dist) * (speed * 0.8);
+          }
+        }
+        nextX = Math.max(20, Math.min(780, nextX));
+        nextY = Math.max(20, Math.min(380, nextY));
+      }
+      
+      if (nextX !== myPos.current.x || nextY !== myPos.current.y) {
+        myPos.current = { x: nextX, y: nextY };
+        updateServerState(myPos.current);
+      }
+
+      if (opponentData && room.status === 'fighting') {
+        const dx = oppPos.current.x - myPos.current.x;
+        const dy = oppPos.current.y - myPos.current.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const now = Date.now();
+        
+        if (dist < myConfig.range && now - lastAttackTime.current > 1000 / (player?.stats?.atkSpeed || 1)) {
+          lastAttackTime.current = now;
+          if (myConfig.isRanged) {
+            projectilesRef.current.push({
+              x: myPos.current.x,
+              y: myPos.current.y,
+              targetX: oppPos.current.x,
+              targetY: oppPos.current.y,
+              startTime: now,
+              duration: 300,
+              color: getClassConfig(selfData.weaponType).projectileColor
+            });
+          }
+          updateServerState(myPos.current, { uid: user.uid, type: 'attack' });
+        }
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      ctx.strokeStyle = 'rgba(212, 175, 55, 0.05)';
+      ctx.lineWidth = 1;
+      for(let i=0; i<canvas.width; i+=40) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke(); }
+      for(let i=0; i<canvas.height; i+=40) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke(); }
+
+      const now = Date.now();
+      projectilesRef.current = projectilesRef.current.filter(p => now - p.startTime < p.duration);
+      projectilesRef.current.forEach(p => {
+        const t = (now - p.startTime) / p.duration;
+        const x = p.x + (p.targetX - p.x) * t;
+        const y = p.y + (p.targetY - p.y) * t;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();ctx.arc(x, y, 4, 0, Math.PI * 2);ctx.fill();
+        ctx.strokeStyle = p.color + '44';
+        ctx.beginPath();ctx.moveTo(p.x, p.y);ctx.lineTo(x, y);ctx.stroke();
+      });
+
+      if (opponentData) {
+        drawPlayer(ctx, oppPos.current.x, oppPos.current.y, opponentData, false);
+      }
+      drawPlayer(ctx, myPos.current.x, myPos.current.y, selfData, true);
+
+      requestRef.current = requestAnimationFrame(gameLoop);
     };
 
     requestRef.current = requestAnimationFrame(gameLoop);
     return () => cancelAnimationFrame(requestRef.current);
-  }, [room.status, opponentData?.hp]); // Remove velocity dependency
+  }, [room.status, opponentData?.hp, opponentData?.weaponType, myConfig.range, myConfig.isRanged, player?.stats?.atkSpeed, selfData, user?.uid, velocity]);
 
   return (
     <div className="flex-1 flex flex-col pt-4">
@@ -409,12 +500,10 @@ const ArenaBattlefield = React.memo(({ room, user, player, velocity, onLeave }: 
           )}
         </AnimatePresence>
 
-        {/* Joystick Tip */}
         <div className="absolute bottom-4 left-4 p-2 bg-black/60 border border-[#d4af37]/20 rounded text-[9px] text-[#d4af37]/40 uppercase tracking-widest font-cinzel">
-          Используйте джойстик для перемещения
+          Используйте джойстик для перемещения или стойте на месте для автобоя
         </div>
       </div>
     </div>
   );
 });
-

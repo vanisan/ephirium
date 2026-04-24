@@ -44,6 +44,7 @@
             "maxHp": { "type": "number" },
             "stats": { "type": "object" },
             "skinColor": { "type": "string" },
+            "weaponType": { "type": "string" },
             "x": { "type": "number" },
             "y": { "type": "number" }
           }
@@ -57,6 +58,7 @@
             "maxHp": { "type": "number" },
             "stats": { "type": "object" },
             "skinColor": { "type": "string" },
+            "weaponType": { "type": "string" },
             "x": { "type": "number" },
             "y": { "type": "number" }
           }
