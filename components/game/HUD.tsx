@@ -10,7 +10,7 @@ import { signOut } from 'firebase/auth';
 import { PvPArena } from './PvPArena';
 
 interface HUDProps {
-  velocity: { x: number, y: number };
+  velocity: React.RefObject<{ x: number, y: number }>;
 }
 
 export const HUD: React.FC<HUDProps> = ({ velocity }) => {

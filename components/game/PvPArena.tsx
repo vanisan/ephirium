@@ -27,7 +27,7 @@ interface RoomData {
 }
 
 interface PvPArenaProps {
-  velocity: { x: number, y: number };
+  velocity: React.RefObject<{ x: number, y: number }>;
 }
 
 export const PvPArena: React.FC<PvPArenaProps> = ({ velocity }) => {
@@ -203,7 +203,8 @@ export const PvPArena: React.FC<PvPArenaProps> = ({ velocity }) => {
   );
 };
 
-const ArenaBattlefield = ({ room, user, player, velocity, onLeave }: any) => {
+const ArenaBattlefield = React.memo(({ room, user, player, velocity, onLeave }: any) => {
+  if (!room || !user) return null;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
   const lastSyncTime = useRef<number>(0);
@@ -211,17 +212,20 @@ const ArenaBattlefield = ({ room, user, player, velocity, onLeave }: any) => {
   const [floatingTexts, setFloatingTexts] = useState<any[]>([]);
   const floatingTextsRef = useRef<any[]>([]);
 
-  const isHost = room.host.uid === user?.uid;
-  const selfData = isHost ? room.host : room.opponent;
-  const opponentData = isHost ? room.opponent : room.host;
+  const isHost = room?.host?.uid === user?.uid;
+  const selfData = isHost ? room?.host : room?.opponent;
+  const opponentData = isHost ? room?.opponent : room?.host;
 
   // Local state for smooth movement
-  const myPos = useRef({ x: selfData.x, y: selfData.y });
+  const myPos = useRef({ x: selfData?.x || 100, y: selfData?.y || 200 });
   const oppPos = useRef({ x: opponentData?.x || 400, y: opponentData?.y || 200 });
+  
 
   useEffect(() => {
-    myPos.current = { x: selfData.x, y: selfData.y };
-  }, [selfData.uid]); // Reset on entry
+    if (selfData) {
+      myPos.current = { x: selfData.x, y: selfData.y };
+    }
+  }, [selfData?.uid]); 
 
   useEffect(() => {
     if (opponentData) {
@@ -230,6 +234,7 @@ const ArenaBattlefield = ({ room, user, player, velocity, onLeave }: any) => {
   }, [opponentData?.x, opponentData?.y]);
 
   const updateServerState = async (newPos: { x: number, y: number }, attack?: any) => {
+    if (!selfData || !user || !room?.id) return;
     const now = Date.now();
     if (now - lastSyncTime.current < 100 && !attack) return; // Throttle position updates
     lastSyncTime.current = now;
@@ -247,7 +252,7 @@ const ArenaBattlefield = ({ room, user, player, velocity, onLeave }: any) => {
       const targetPath = isHost ? 'opponent' : 'host';
       const target = isHost ? room.opponent : room.host;
       if (target) {
-        const damage = Math.max(1, Math.floor(player.stats.damage * (0.8 + Math.random() * 0.4)));
+        const damage = Math.max(1, Math.floor((player?.stats?.damage || 1) * (0.8 + Math.random() * 0.4)));
         const newHp = Math.max(0, target.hp - damage);
         update[`${targetPath}.hp`] = newHp;
         if (newHp <= 0) {
@@ -275,8 +280,9 @@ const ArenaBattlefield = ({ room, user, player, velocity, onLeave }: any) => {
 
       // 1. UPDATE SELF POSITION
       const speed = 5;
-      const nextX = Math.max(20, Math.min(780, myPos.current.x + velocity.x * speed));
-      const nextY = Math.max(20, Math.min(380, myPos.current.y + velocity.y * speed));
+      const currentVel = velocity.current || { x: 0, y: 0 };
+      const nextX = Math.max(20, Math.min(780, myPos.current.x + currentVel.x * speed));
+      const nextY = Math.max(20, Math.min(380, myPos.current.y + currentVel.y * speed));
       
       if (nextX !== myPos.current.x || nextY !== myPos.current.y) {
         myPos.current = { x: nextX, y: nextY };
@@ -290,7 +296,7 @@ const ArenaBattlefield = ({ room, user, player, velocity, onLeave }: any) => {
         const dist = Math.sqrt(dx*dx + dy*dy);
         const now = Date.now();
         
-        if (dist < 60 && now - lastAttackTime.current > 1000 / player.stats.atkSpeed) {
+        if (dist < 60 && now - lastAttackTime.current > 1000 / (player?.stats?.atkSpeed || 1)) {
           lastAttackTime.current = now;
           updateServerState(myPos.current, { uid: user.uid, type: 'attack' });
         }
@@ -317,6 +323,7 @@ const ArenaBattlefield = ({ room, user, player, velocity, onLeave }: any) => {
     };
 
     const drawPlayer = (ctx: CanvasRenderingContext2D, x: number, y: number, data: any, isSelf: boolean) => {
+      if (!data) return;
       // Shadow
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
       ctx.beginPath();ctx.ellipse(x, y + 25, 15, 8, 0, 0, Math.PI * 2);ctx.fill();
@@ -345,7 +352,7 @@ const ArenaBattlefield = ({ room, user, player, velocity, onLeave }: any) => {
 
     requestRef.current = requestAnimationFrame(gameLoop);
     return () => cancelAnimationFrame(requestRef.current);
-  }, [room.status, velocity, opponentData?.hp]);
+  }, [room.status, opponentData?.hp]); // Remove velocity dependency
 
   return (
     <div className="flex-1 flex flex-col pt-4">
@@ -409,5 +416,5 @@ const ArenaBattlefield = ({ room, user, player, velocity, onLeave }: any) => {
       </div>
     </div>
   );
-};
+});
 

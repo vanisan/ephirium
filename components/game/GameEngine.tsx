@@ -4,7 +4,7 @@ import React, { useRef, useEffect } from 'react';
 import { useGameStore, Enemy } from '@/lib/store';
 
 interface GameEngineProps {
-  velocity: { x: number, y: number };
+  velocity: React.RefObject<{ x: number, y: number }>;
 }
 
 interface FloatingText {
@@ -16,7 +16,7 @@ interface FloatingText {
   life: number;
 }
 
-export const GameEngine: React.FC<GameEngineProps> = ({ velocity }) => {
+export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
@@ -25,11 +25,6 @@ export const GameEngine: React.FC<GameEngineProps> = ({ velocity }) => {
   const lastRespawnTime = useRef<number>(0);
   const floatingTexts = useRef<FloatingText[]>([]);
   const attackEffect = useRef<{ angle: number, progress: number } | null>(null);
-  const velocityRef = useRef(velocity);
-
-  useEffect(() => {
-    velocityRef.current = velocity;
-  }, [velocity]);
 
   // Constants
   const PLAYER_SPEED = 4.5;
@@ -114,7 +109,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({ velocity }) => {
     const { player, enemies, isAutoBattle, updatePlayerPos, damageEnemy, spawnEnemy, damagePlayer, gainExp } = state;
 
     // 1. Move Player (Manual)
-    const currentVelocity = velocityRef.current;
+    const currentVelocity = velocity.current || { x: 0, y: 0 };
     let newX = player.x + currentVelocity.x * PLAYER_SPEED;
     let newY = player.y + currentVelocity.y * PLAYER_SPEED;
 
@@ -197,7 +192,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({ velocity }) => {
               gainExp(25);
             }
           }
-        } else if (dist < ENEMY_DETECTION_RANGE && velocity.x === 0 && velocity.y === 0) {
+        } else if (dist < ENEMY_DETECTION_RANGE && (velocity.current?.x || 0) === 0 && (velocity.current?.y || 0) === 0) {
           // Auto-move towards enemy if not controlled manually
           const angle = Math.atan2(nearestEnemy.y - player.y, nearestEnemy.x - player.x);
           newX += Math.cos(angle) * (PLAYER_SPEED * 0.7);
@@ -338,7 +333,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({ velocity }) => {
     ctx.translate(player.x, player.y);
     
     // Calculate facing angle based on movement
-    const currentVelocity = velocityRef.current;
+    const currentVelocity = velocity.current || { x: 0, y: 0 };
     const facingAngle = currentVelocity.x !== 0 || currentVelocity.y !== 0 
       ? Math.atan2(currentVelocity.y, currentVelocity.x) 
       : 0;
@@ -675,9 +670,10 @@ export const GameEngine: React.FC<GameEngineProps> = ({ velocity }) => {
 
   useEffect(() => {
     const handleResize = () => {
-      if (canvasRef.current) {
-        canvasRef.current.width = window.innerWidth;
-        canvasRef.current.height = window.innerHeight;
+      const canvas = canvasRef.current;
+      if (canvas && canvas.parentElement) {
+        canvas.width = canvas.parentElement.clientWidth;
+        canvas.height = canvas.parentElement.clientHeight;
       }
     };
     window.addEventListener('resize', handleResize);
@@ -696,4 +692,4 @@ export const GameEngine: React.FC<GameEngineProps> = ({ velocity }) => {
       className="block w-full h-full"
     />
   );
-};
+});

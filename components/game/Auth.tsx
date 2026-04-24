@@ -98,7 +98,14 @@ export const Auth: React.FC<{ isLanding?: boolean }> = ({ isLanding }) => {
       {error && (
         <div className="mb-4 sm:mb-6 p-2 sm:p-3 bg-red-900/20 border border-red-500/50 rounded flex items-start gap-2 sm:gap-3 text-red-200 text-xs sm:text-sm">
           <ShieldAlert size={14} className="shrink-0 mt-0.5 sm:size-[16px]" />
-          <span>{error}</span>
+          <div className="flex flex-col gap-1">
+            <span>{error}</span>
+            {(error as string).includes('unauthorized-domain') && (
+              <div className="mt-1 font-bold text-white p-1 bg-red-600/40 rounded">
+                Добавьте <code className="bg-black/60 px-1 rounded">ephirium-beige.vercel.app</code> в список разрешенных доменов в консоли Firebase.
+              </div>
+            )}
+          </div>
         </div>
       )}
 

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { GameEngine } from '@/components/game/GameEngine';
 import { HUD } from '@/components/game/HUD';
 import { Joystick } from '@/components/game/Joystick';
@@ -10,7 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Sword } from 'lucide-react';
 
 export default function GamePage() {
-  const [velocity, setVelocity] = useState({ x: 0, y: 0 });
+  const velocity = useRef({ x: 0, y: 0 });
   const { user } = useGameStore();
 
   return (
@@ -61,7 +61,7 @@ export default function GamePage() {
             <div className="absolute inset-0 pointer-events-none">
               {/* Joystick Position (Bottom Left) */}
               <div className="absolute bottom-28 left-6 sm:bottom-12 sm:left-12 pointer-events-auto">
-                <Joystick onMove={(dx, dy) => setVelocity({ x: dx, y: dy })} />
+                <Joystick onMove={(dx, dy) => { velocity.current = { x: dx, y: dy }; }} />
               </div>
             </div>
           </motion.div>
