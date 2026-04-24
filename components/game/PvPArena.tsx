@@ -256,33 +256,45 @@ const ArenaBattlefield = React.memo(({ room, user, player, velocity, onLeave }: 
   const updateServerState = async (newPos: { x: number, y: number }, attack?: any) => {
     if (!selfData || !user || !room?.id) return;
     const now = Date.now();
+    
+    // Position updates are throttled, but attacks and HP changes are priority
     if (now - lastSyncTime.current < 100 && !attack) return; 
     lastSyncTime.current = now;
 
     const roomRef = doc(db, 'rooms', room.id);
-    const update: any = {};
+    const update: any = {
+      updatedAt: serverTimestamp()
+    };
     const path = isHost ? 'host' : 'opponent';
     
     update[`${path}.x`] = newPos.x;
     update[`${path}.y`] = newPos.y;
     
     if (attack) {
-      update.lastAction = attack;
+      update.lastAction = { ...attack, timestamp: now };
       const targetPath = isHost ? 'opponent' : 'host';
       const target = isHost ? room.opponent : room.host;
       if (target) {
+        // DAMAGE CALCULATION
         let damage = Math.max(1, Math.floor((player?.stats?.damage || 1) * (0.8 + Math.random() * 0.4)));
         
-        if (selfData.weaponType === 'bow' && Math.random() < 0.2) damage *= 1.5;
+        // Critical for Bow
+        let isCrit = false;
+        if (selfData.weaponType === 'bow' && Math.random() < 0.25) {
+          damage *= 1.5;
+          isCrit = true;
+        }
         
+        // Defense reduction
         const targetDefense = (target.stats?.defense || 0) * (target.weaponType === 'sword' ? 1.2 : 1);
-        damage = Math.max(1, damage - Math.floor(targetDefense * 0.3));
+        damage = Math.max(1, Math.floor(damage - (targetDefense * 0.2)));
 
         const newHp = Math.max(0, target.hp - damage);
         update[`${targetPath}.hp`] = newHp;
-
+        
+        // Lifesteal for Staff
         if (selfData.weaponType === 'staff') {
-          const lifesteal = Math.floor(damage * 0.15);
+          const lifesteal = Math.floor(damage * 0.20);
           update[`${path}.hp`] = Math.min(selfData.maxHp, selfData.hp + lifesteal);
         }
 
@@ -296,9 +308,22 @@ const ArenaBattlefield = React.memo(({ room, user, player, velocity, onLeave }: 
     try {
       await updateDoc(roomRef, update);
     } catch (e) {
-      console.error(e);
+      console.error('PvP Sync Error:', e);
     }
   };
+
+  const [damageIndicators, setDamageIndicators] = useState<any[]>([]);
+
+  // Listen for actions to show damage indicators
+  useEffect(() => {
+    if (room.lastAction && room.lastAction.uid !== user.uid) {
+      const now = Date.now();
+      if (now - (room.lastAction.timestamp || 0) < 500) {
+        // Someone attacked me or just an action happened
+        // In this simple setup, we just use the lastAction to trigger visual effects
+      }
+    }
+  }, [room.lastAction?.timestamp]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -369,17 +394,19 @@ const ArenaBattlefield = React.memo(({ room, user, player, velocity, onLeave }: 
         const targetDist = myConfig.range * 0.8;
         
         if (myConfig.isRanged) {
-          if (dist < targetDist * 0.7) {
-            nextX -= (dx/dist) * (speed * 0.5);
-            nextY -= (dy/dist) * (speed * 0.5);
+          // Better kiting for ranged
+          if (dist < targetDist * 0.6) {
+            nextX -= (dx/dist) * (speed * 0.6);
+            nextY -= (dy/dist) * (speed * 0.6);
           } else if (dist > targetDist) {
             nextX += (dx/dist) * (speed * 0.5);
             nextY += (dy/dist) * (speed * 0.5);
           }
         } else {
-          if (dist > 40) {
-            nextX += (dx/dist) * (speed * 0.8);
-            nextY += (dy/dist) * (speed * 0.8);
+          // Melee closes in faster
+          if (dist > 35) {
+            nextX += (dx/dist) * (speed * 0.85);
+            nextY += (dy/dist) * (speed * 0.85);
           }
         }
         nextX = Math.max(20, Math.min(780, nextX));
@@ -397,7 +424,7 @@ const ArenaBattlefield = React.memo(({ room, user, player, velocity, onLeave }: 
         const dist = Math.sqrt(dx*dx + dy*dy);
         const now = Date.now();
         
-        if (dist < myConfig.range && now - lastAttackTime.current > 1000 / (player?.stats?.atkSpeed || 1)) {
+        if (dist < myConfig.range + 10 && now - lastAttackTime.current > 1000 / (player?.stats?.atkSpeed || 1)) {
           lastAttackTime.current = now;
           if (myConfig.isRanged) {
             projectilesRef.current.push({
@@ -406,7 +433,7 @@ const ArenaBattlefield = React.memo(({ room, user, player, velocity, onLeave }: 
               targetX: oppPos.current.x,
               targetY: oppPos.current.y,
               startTime: now,
-              duration: 300,
+              duration: 250,
               color: getClassConfig(selfData.weaponType).projectileColor
             });
           }
@@ -416,20 +443,28 @@ const ArenaBattlefield = React.memo(({ room, user, player, velocity, onLeave }: 
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-      ctx.strokeStyle = 'rgba(212, 175, 55, 0.05)';
+      // More visible grid
+      ctx.strokeStyle = 'rgba(212, 175, 55, 0.08)';
       ctx.lineWidth = 1;
       for(let i=0; i<canvas.width; i+=40) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke(); }
       for(let i=0; i<canvas.height; i+=40) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke(); }
 
       const now = Date.now();
+      // Glowing projectiles
       projectilesRef.current = projectilesRef.current.filter(p => now - p.startTime < p.duration);
       projectilesRef.current.forEach(p => {
         const t = (now - p.startTime) / p.duration;
         const x = p.x + (p.targetX - p.x) * t;
         const y = p.y + (p.targetY - p.y) * t;
+        
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = p.color;
         ctx.fillStyle = p.color;
-        ctx.beginPath();ctx.arc(x, y, 4, 0, Math.PI * 2);ctx.fill();
-        ctx.strokeStyle = p.color + '44';
+        ctx.beginPath();ctx.arc(x, y, 5, 0, Math.PI * 2);ctx.fill();
+        ctx.shadowBlur = 0;
+        
+        ctx.strokeStyle = p.color + '66';
+        ctx.lineWidth = 2;
         ctx.beginPath();ctx.moveTo(p.x, p.y);ctx.lineTo(x, y);ctx.stroke();
       });
 

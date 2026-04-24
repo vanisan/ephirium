@@ -47,33 +47,48 @@ service cloud.firestore {
       allow delete: if isOwner(userId);
     }
 
+    // Room data validation
+    function isValidRoom(data) {
+      return data.host is map &&
+             data.host.uid is string &&
+             data.host.hp is number &&
+             data.status in ['waiting', 'fighting', 'finished'];
+    }
+
     match /rooms/{roomId} {
-      // Helper for room actions
       function isParticipant() {
-        return isSignedIn() && (request.auth.uid == resource.data.host.uid || (resource.data.opponent != null && request.auth.uid == resource.data.opponent.uid));
+        return isSignedIn() && (
+          (resource.data.host != null && request.auth.uid == resource.data.host.uid) || 
+          (resource.data.opponent != null && request.auth.uid == resource.data.opponent.uid)
+        );
       }
 
-      allow read: if isSignedIn();
+      function isHost() {
+        return isSignedIn() && resource.data.host != null && request.auth.uid == resource.data.host.uid;
+      }
+
+      allow get: if isSignedIn();
       allow list: if isSignedIn();
       
       allow create: if isSignedIn() && 
-                    isValidId(roomId) &&
-                    incoming().host.uid == request.auth.uid &&
-                    incoming().status == 'waiting';
+                    isValidRoom(incoming()) &&
+                    incoming().host.uid == request.auth.uid;
 
       allow update: if isSignedIn() && (
         // Action: Join
-        (existing().status == 'waiting' && incoming().status == 'fighting' && 
-         incoming().opponent.uid == request.auth.uid && 
-         incoming().host.uid == existing().host.uid) ||
+        (existing().status == 'waiting' && 
+         incoming().status == 'fighting' && 
+         incoming().opponent.uid == request.auth.uid) ||
         
-        // Action: Combat
-        (existing().status == 'fighting' && isParticipant() &&
-         incoming().status in ['fighting', 'finished'] &&
-         incoming().updatedAt != existing().updatedAt)
+        // Action: Activity (Movement, Combat, Finish)
+        (isParticipant() && 
+         (incoming().status in ['fighting', 'finished'])) ||
+         
+         // Allow host to cancel/finish
+         isHost()
       );
 
-      allow delete: if isSignedIn() && resource.data.host.uid == request.auth.uid;
+      allow delete: if isSignedIn() && isHost();
     }
   }
 }
