@@ -35,8 +35,32 @@
       "type": "object",
       "properties": {
         "status": { "type": "string", "enum": ["waiting", "fighting", "finished"] },
-        "host": { "type": "object" },
-        "opponent": { "type": "object" },
+        "host": { 
+          "type": "object",
+          "properties": {
+            "uid": { "type": "string" },
+            "name": { "type": "string" },
+            "hp": { "type": "number" },
+            "maxHp": { "type": "number" },
+            "stats": { "type": "object" },
+            "skinColor": { "type": "string" },
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          }
+        },
+        "opponent": { 
+          "type": "object",
+          "properties": {
+            "uid": { "type": "string" },
+            "name": { "type": "string" },
+            "hp": { "type": "number" },
+            "maxHp": { "type": "number" },
+            "stats": { "type": "object" },
+            "skinColor": { "type": "string" },
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          }
+        },
         "winner": { "type": "string" },
         "lastAction": { "type": "object" },
         "updatedAt": { "type": "string", "format": "date-time" }

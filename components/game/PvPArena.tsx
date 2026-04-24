@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '@/lib/firebase';
 import { 
   collection, 
@@ -12,7 +12,6 @@ import {
   doc, 
   deleteDoc,
   serverTimestamp,
-  getDoc
 } from 'firebase/firestore';
 import { useGameStore } from '@/lib/store';
 import { motion, AnimatePresence } from 'motion/react';
@@ -27,13 +26,16 @@ interface RoomData {
   lastAction?: any;
 }
 
-export const PvPArena: React.FC = () => {
+interface PvPArenaProps {
+  velocity: { x: number, y: number };
+}
+
+export const PvPArena: React.FC<PvPArenaProps> = ({ velocity }) => {
   const { player, user, saveGame } = useGameStore();
   const [rooms, setRooms] = useState<any[]>([]);
-  const [currentRoom, setCurrentRoom] = useState<any>(null);
+  const [currentRoom, setCurrentRoom] = useState<RoomData | null>(null);
   const [loading, setLoading] = useState(false);
-  const rewardedRef = React.useRef(false);
-  const [battleLog, setBattleLog] = useState<string[]>([]);
+  const rewardedRef = useRef(false);
 
   // Listen for available rooms
   useEffect(() => {
@@ -53,7 +55,6 @@ export const PvPArena: React.FC = () => {
         const data = { id: snapshot.id, ...snapshot.data() } as RoomData;
         setCurrentRoom(data);
         
-        // Handle battle end
         if (data.status === 'finished' && data.winner) {
           if (data.winner === user?.uid && !rewardedRef.current) {
             rewardedRef.current = true;
@@ -67,55 +68,7 @@ export const PvPArena: React.FC = () => {
     return () => unsubscribe();
   }, [currentRoom?.id]);
 
-  // Handle battle logic if we are participant
-  useEffect(() => {
-    if (!currentRoom || currentRoom.status !== 'fighting' || currentRoom.winner) return;
-
-    const interval = setInterval(() => {
-      processCombatStep();
-    }, 1500);
-
-    return () => clearInterval(interval);
-  }, [currentRoom?.status]);
-
-  const processCombatStep = async () => {
-    if (!currentRoom || !user) return;
-    
-    const isHost = currentRoom.host.uid === user.uid;
-    const self = isHost ? currentRoom.host : currentRoom.opponent;
-    const target = isHost ? currentRoom.opponent : currentRoom.host;
-
-    if (!target || self.hp <= 0 || target.hp <= 0) return;
-
-    // Calculate damage
-    const damage = Math.max(1, Math.floor(self.stats.damage * (0.8 + Math.random() * 0.4)) - Math.floor(target.stats.defense * 0.5));
-    const newTargetHp = Math.max(0, target.hp - damage);
-
-    const update: any = {
-      updatedAt: serverTimestamp(),
-      lastAction: { uid: user.uid, type: 'attack', amount: damage }
-    };
-
-    if (isHost) {
-      update.opponent = { ...target, hp: newTargetHp };
-    } else {
-      update.host = { ...target, hp: newTargetHp };
-    }
-
-    if (newTargetHp <= 0) {
-      update.status = 'finished';
-      update.winner = user.uid;
-    }
-
-    try {
-      await updateDoc(doc(db, 'rooms', currentRoom.id), update);
-    } catch (e) {
-      console.error("Combat update failed", e);
-    }
-  };
-
   const handleVictory = () => {
-    // Only add reward once local state detects it
     useGameStore.setState(state => ({
       player: { ...state.player, gold: state.player.gold + 1000 }
     }));
@@ -135,14 +88,16 @@ export const PvPArena: React.FC = () => {
           hp: player.maxHp,
           maxHp: player.maxHp,
           stats: player.stats,
-          skinColor: player.skinColor
+          skinColor: player.skinColor,
+          x: 100,
+          y: 200
         },
         opponent: null,
         winner: null,
         updatedAt: serverTimestamp()
       };
       const roomDoc = await addDoc(collection(db, 'rooms'), room);
-      setCurrentRoom({ id: roomDoc.id, ...room });
+      setCurrentRoom({ id: roomDoc.id, ...room } as RoomData);
     } catch (e) {
       console.error(e);
     } finally {
@@ -163,7 +118,9 @@ export const PvPArena: React.FC = () => {
           hp: player.maxHp,
           maxHp: player.maxHp,
           stats: player.stats,
-          skinColor: player.skinColor
+          skinColor: player.skinColor,
+          x: 700,
+          y: 200
         },
         updatedAt: serverTimestamp()
       });
@@ -184,68 +141,14 @@ export const PvPArena: React.FC = () => {
   };
 
   if (currentRoom) {
-    const isHost = currentRoom.host.uid === user?.uid;
-    const opponent = isHost ? currentRoom.opponent : currentRoom.host;
-    const self = isHost ? currentRoom.host : currentRoom.opponent;
-
     return (
-      <div className="flex-1 flex flex-col pt-4">
-        <div className="flex justify-between items-center mb-6 px-4">
-          <div className="flex items-center gap-3">
-            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-            <span className="font-cinzel text-xs text-red-500 font-bold uppercase tracking-widest">Арена Битвы</span>
-          </div>
-          <button onClick={leaveRoom} className="text-[#d4af37]/60 hover:text-[#d4af37] text-xs font-cinzel">ВЫЙТИ</button>
-        </div>
-
-        <div className="flex-1 flex flex-col justify-center items-center gap-8 sm:gap-16">
-          {/* Battle Arena View */}
-          <div className="w-full flex justify-around items-center px-4 relative">
-            {/* Center VS */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="text-6xl sm:text-8xl font-black italic text-[#d4af37]/10 tracking-widest">VS</div>
-            </div>
-
-            {/* Host/Self */}
-            <FighterCard fighter={self} isSelf />
-            
-            <div className="w-12 h-1 bg-[#d4af37]/20 rounded-full hidden sm:block" />
-
-            {/* Target */}
-            {opponent ? (
-              <FighterCard fighter={opponent} />
-            ) : (
-              <div className="flex flex-col items-center gap-4 opacity-50">
-                <div className="w-20 h-20 sm:w-32 sm:h-32 border-2 border-dashed border-[#d4af37]/40 rounded-full flex items-center justify-center">
-                  <Users size={40} className="text-[#d4af37]/40" />
-                </div>
-                <div className="text-center">
-                  <div className="font-cinzel text-[10px] text-[#d4af37] uppercase tracking-widest animate-pulse">Ожидание...</div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {currentRoom.status === 'finished' && (
-            <motion.div 
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="text-center z-10"
-            >
-              <div className="inline-flex flex-col items-center p-6 bg-black border-2 border-[#d4af37] shadow-[0_0_50px_rgba(212,175,55,0.3)]">
-                <Trophy size={48} className="text-[#d4af37] mb-4" />
-                <h3 className="text-3xl font-cinzel font-bold text-[#d4af37] uppercase mb-2">
-                  {currentRoom.winner === user?.uid ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ'}
-                </h3>
-                {currentRoom.winner === user?.uid && (
-                  <div className="text-green-500 font-bold tracking-widest">+1000 ЗОЛОТА</div>
-                )}
-                <button onClick={leaveRoom} className="mt-6 px-10 py-3 bg-[#d4af37] text-black font-cinzel font-bold tracking-widest hover:bg-white transition-colors">ВЕРНУТЬСЯ</button>
-              </div>
-            </motion.div>
-          )}
-        </div>
-      </div>
+      <ArenaBattlefield 
+        room={currentRoom} 
+        user={user} 
+        player={player} 
+        velocity={velocity}
+        onLeave={leaveRoom}
+      />
     );
   }
 
@@ -283,7 +186,7 @@ export const PvPArena: React.FC = () => {
                 </div>
                 <div>
                   <h4 className="font-cinzel text-lg font-bold text-[#d4af37] tracking-widest">{room.host.name}</h4>
-                  <div className="text-[10px] text-[#e5d3b3]/40 uppercase tracking-widest pt-0.5">Уровнь: {room.host.stats.level}</div>
+                  <div className="text-[10px] text-[#e5d3b3]/40 uppercase tracking-widest pt-0.5">Уровень: {room.host.stats.level}</div>
                 </div>
               </div>
               <button 
@@ -300,30 +203,211 @@ export const PvPArena: React.FC = () => {
   );
 };
 
-const FighterCard = ({ fighter, isSelf }: { fighter: any, isSelf?: boolean }) => {
-  const hpPercent = (fighter.hp / fighter.maxHp) * 100;
+const ArenaBattlefield = ({ room, user, player, velocity, onLeave }: any) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const requestRef = useRef<number>(0);
+  const lastSyncTime = useRef<number>(0);
+  const lastAttackTime = useRef<number>(0);
+  const [floatingTexts, setFloatingTexts] = useState<any[]>([]);
+  const floatingTextsRef = useRef<any[]>([]);
+
+  const isHost = room.host.uid === user?.uid;
+  const selfData = isHost ? room.host : room.opponent;
+  const opponentData = isHost ? room.opponent : room.host;
+
+  // Local state for smooth movement
+  const myPos = useRef({ x: selfData.x, y: selfData.y });
+  const oppPos = useRef({ x: opponentData?.x || 400, y: opponentData?.y || 200 });
+
+  useEffect(() => {
+    myPos.current = { x: selfData.x, y: selfData.y };
+  }, [selfData.uid]); // Reset on entry
+
+  useEffect(() => {
+    if (opponentData) {
+      oppPos.current = { x: opponentData.x, y: opponentData.y };
+    }
+  }, [opponentData?.x, opponentData?.y]);
+
+  const updateServerState = async (newPos: { x: number, y: number }, attack?: any) => {
+    const now = Date.now();
+    if (now - lastSyncTime.current < 100 && !attack) return; // Throttle position updates
+    lastSyncTime.current = now;
+
+    const roomRef = doc(db, 'rooms', room.id);
+    const update: any = {};
+    const path = isHost ? 'host' : 'opponent';
+    
+    update[`${path}.x`] = newPos.x;
+    update[`${path}.y`] = newPos.y;
+    
+    if (attack) {
+      update.lastAction = attack;
+      // Handle damage calculation (simple version)
+      const targetPath = isHost ? 'opponent' : 'host';
+      const target = isHost ? room.opponent : room.host;
+      if (target) {
+        const damage = Math.max(1, Math.floor(player.stats.damage * (0.8 + Math.random() * 0.4)));
+        const newHp = Math.max(0, target.hp - damage);
+        update[`${targetPath}.hp`] = newHp;
+        if (newHp <= 0) {
+          update.status = 'finished';
+          update.winner = user.uid;
+        }
+      }
+    }
+
+    try {
+      await updateDoc(roomRef, update);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const gameLoop = () => {
+      if (room.status !== 'fighting') return;
+
+      // 1. UPDATE SELF POSITION
+      const speed = 5;
+      const nextX = Math.max(20, Math.min(780, myPos.current.x + velocity.x * speed));
+      const nextY = Math.max(20, Math.min(380, myPos.current.y + velocity.y * speed));
+      
+      if (nextX !== myPos.current.x || nextY !== myPos.current.y) {
+        myPos.current = { x: nextX, y: nextY };
+        updateServerState(myPos.current);
+      }
+
+      // 2. CHECK ATTACK RANGE
+      if (opponentData && room.status === 'fighting') {
+        const dx = oppPos.current.x - myPos.current.x;
+        const dy = oppPos.current.y - myPos.current.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const now = Date.now();
+        
+        if (dist < 60 && now - lastAttackTime.current > 1000 / player.stats.atkSpeed) {
+          lastAttackTime.current = now;
+          updateServerState(myPos.current, { uid: user.uid, type: 'attack' });
+        }
+      }
+
+      // 3. RENDER
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Grid
+      ctx.strokeStyle = 'rgba(212, 175, 55, 0.05)';
+      ctx.lineWidth = 1;
+      for(let i=0; i<canvas.width; i+=40) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke(); }
+      for(let i=0; i<canvas.height; i+=40) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke(); }
+
+      // Draw Opponent
+      if (opponentData) {
+        drawPlayer(ctx, oppPos.current.x, oppPos.current.y, opponentData, false);
+      }
+
+      // Draw Self
+      drawPlayer(ctx, myPos.current.x, myPos.current.y, selfData, true);
+
+      requestRef.current = requestAnimationFrame(gameLoop);
+    };
+
+    const drawPlayer = (ctx: CanvasRenderingContext2D, x: number, y: number, data: any, isSelf: boolean) => {
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();ctx.ellipse(x, y + 25, 15, 8, 0, 0, Math.PI * 2);ctx.fill();
+
+      // Body
+      ctx.fillStyle = data.skinColor || '#e5c298';
+      ctx.beginPath();ctx.arc(x, y, 15, 0, Math.PI * 2);ctx.fill();
+      ctx.strokeStyle = isSelf ? '#d4af37' : '#ff4444';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // HP Bar
+      const barWidth = 40;
+      const hpRatio = data.hp / data.maxHp;
+      ctx.fillStyle = '#111';
+      ctx.fillRect(x - barWidth/2, y - 35, barWidth, 4);
+      ctx.fillStyle = isSelf ? '#22ff22' : '#ff2222';
+      ctx.fillRect(x - barWidth/2, y - 35, barWidth * hpRatio, 4);
+
+      // Name
+      ctx.fillStyle = '#e5d3b3';
+      ctx.font = '10px Cinzel';
+      ctx.textAlign = 'center';
+      ctx.fillText(data.name, x, y - 45);
+    };
+
+    requestRef.current = requestAnimationFrame(gameLoop);
+    return () => cancelAnimationFrame(requestRef.current);
+  }, [room.status, velocity, opponentData?.hp]);
 
   return (
-    <div className="flex flex-col items-center gap-4 relative">
-      <div className={`w-24 h-24 sm:w-40 sm:h-40 border-4 border-[#d4af37] rounded-full flex items-center justify-center relative shadow-[0_0_30px_rgba(212,175,55,0.2)] bg-black/80`}
-           style={{ backgroundColor: fighter.skinColor }}>
-        <div className="absolute -top-4 -right-4 bg-black border border-[#d4af37] px-2 py-1 rounded text-[#d4af37] font-bold text-xs sm:text-sm font-cinzel">HP</div>
-      </div>
-      
-      <div className="w-full max-w-[120px] sm:max-w-[200px] flex flex-col gap-2">
-        <div className="text-center">
-          <h4 className="font-cinzel font-bold text-[#d4af37] truncate uppercase tracking-widest">{fighter.name}</h4>
-          <div className="text-[9px] text-[#e5d3b3]/40 uppercase tracking-tighter">Сила: {fighter.stats.str} | Защита: {fighter.stats.defense}</div>
+    <div className="flex-1 flex flex-col pt-4">
+      <div className="flex justify-between items-center mb-4 px-4">
+        <div className="flex items-center gap-3">
+          <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+          <span className="font-cinzel text-xs text-red-500 font-bold uppercase tracking-widest">Арена Битвы</span>
         </div>
-        
-        <div className="h-2 sm:h-3 bg-gray-900 border border-[#d4af37]/30 overflow-hidden relative">
-          <motion.div 
-            className="absolute inset-y-0 left-0 bg-red-600 shadow-[0_0_10px_rgba(255,0,0,0.3)]"
-            initial={{ width: '100%' }}
-            animate={{ width: `${hpPercent}%` }}
-          />
+        <button onClick={onLeave} className="text-[#d4af37] border border-[#d4af37] px-4 py-1 text-xs font-cinzel font-bold hover:bg-[#d4af37] hover:text-black transition-all">ВЫЙТИ</button>
+      </div>
+
+      <div className="relative flex-1 bg-black border-2 border-[#d4af37]/40 overflow-hidden rounded shadow-[inset_0_0_100px_rgba(0,0,0,1)]">
+        <canvas 
+          ref={canvasRef}
+          width={800}
+          height={400}
+          className="w-full h-full object-contain"
+        />
+
+        {room.status === 'waiting' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10">
+            <Loader2 className="animate-spin text-[#d4af37] mb-4" size={48} />
+            <div className="font-cinzel text-xl text-[#d4af37] animate-pulse uppercase tracking-[0.3em]">Ожидание противника...</div>
+          </div>
+        )}
+
+        <AnimatePresence>
+          {room.status === 'finished' && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="absolute inset-0 flex items-center justify-center bg-black/80 z-20"
+            >
+              <motion.div 
+                initial={{ scale: 0.8 }}
+                animate={{ scale: 1 }}
+                className="text-center bg-black p-8 border-4 border-[#d4af37] shadow-[0_0_100px_rgba(212,175,55,0.4)]"
+              >
+                <Trophy size={64} className="text-[#d4af37] mx-auto mb-6" />
+                <h3 className="text-4xl font-cinzel font-bold text-[#d4af37] uppercase mb-2">
+                  {room.winner === user?.uid ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ'}
+                </h3>
+                {room.winner === user?.uid && (
+                  <div className="text-green-500 text-xl font-bold tracking-[0.2em] mb-8">+1000 ЗОЛОТА</div>
+                )}
+                <button 
+                  onClick={onLeave} 
+                  className="px-12 py-4 bg-[#d4af37] text-black font-cinzel font-bold text-lg tracking-widest hover:bg-white transition-all shadow-xl"
+                >
+                  ВЕРНУТЬСЯ
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Joystick Tip */}
+        <div className="absolute bottom-4 left-4 p-2 bg-black/60 border border-[#d4af37]/20 rounded text-[9px] text-[#d4af37]/40 uppercase tracking-widest font-cinzel">
+          Используйте джойстик для перемещения
         </div>
       </div>
     </div>
   );
 };
+

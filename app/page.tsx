@@ -54,7 +54,7 @@ export default function GamePage() {
             <GameEngine velocity={velocity} />
 
             {/* The UI Overlay */}
-            <HUD />
+            <HUD velocity={velocity} />
             <Auth />
 
             {/* Control Layer */}

@@ -25,6 +25,11 @@ export const GameEngine: React.FC<GameEngineProps> = ({ velocity }) => {
   const lastRespawnTime = useRef<number>(0);
   const floatingTexts = useRef<FloatingText[]>([]);
   const attackEffect = useRef<{ angle: number, progress: number } | null>(null);
+  const velocityRef = useRef(velocity);
+
+  useEffect(() => {
+    velocityRef.current = velocity;
+  }, [velocity]);
 
   // Constants
   const PLAYER_SPEED = 4.5;
@@ -109,8 +114,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({ velocity }) => {
     const { player, enemies, isAutoBattle, updatePlayerPos, damageEnemy, spawnEnemy, damagePlayer, gainExp } = state;
 
     // 1. Move Player (Manual)
-    let newX = player.x + velocity.x * PLAYER_SPEED;
-    let newY = player.y + velocity.y * PLAYER_SPEED;
+    const currentVelocity = velocityRef.current;
+    let newX = player.x + currentVelocity.x * PLAYER_SPEED;
+    let newY = player.y + currentVelocity.y * PLAYER_SPEED;
 
     // 2. Auto Battle Logic
     if (state.player.potionCooldown > 0) {
@@ -332,8 +338,9 @@ export const GameEngine: React.FC<GameEngineProps> = ({ velocity }) => {
     ctx.translate(player.x, player.y);
     
     // Calculate facing angle based on movement
-    const facingAngle = velocity.x !== 0 || velocity.y !== 0 
-      ? Math.atan2(velocity.y, velocity.x) 
+    const currentVelocity = velocityRef.current;
+    const facingAngle = currentVelocity.x !== 0 || currentVelocity.y !== 0 
+      ? Math.atan2(currentVelocity.y, currentVelocity.x) 
       : 0;
     
     // --- DRAW BODY & HANDS ---
@@ -681,7 +688,7 @@ export const GameEngine: React.FC<GameEngineProps> = ({ velocity }) => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
       window.removeEventListener('resize', handleResize);
     };
-  }, [velocity]); // Only depend on velocity to keep loop running correctly
+  }, []); // Remove velocity dependency
 
   return (
     <canvas 

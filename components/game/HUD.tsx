@@ -9,7 +9,11 @@ import { signOut } from 'firebase/auth';
 
 import { PvPArena } from './PvPArena';
 
-export const HUD: React.FC = () => {
+interface HUDProps {
+  velocity: { x: number, y: number };
+}
+
+export const HUD: React.FC<HUDProps> = ({ velocity }) => {
   const { player, isAutoBattle, toggleAutoBattle, inventory, equipment, equipItem, sellItem, locations, currentLocationId, teleport, craftItem, usePotion, user, setUser, saveGame } = useGameStore();
   const [activeTab, setActiveTab] = useState<'inventory' | 'character' | 'locations' | 'forge' | 'arena' | null>(null);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
@@ -200,7 +204,7 @@ export const HUD: React.FC = () => {
                 ))}
               </div>
             ) : activeTab === 'arena' ? (
-              <PvPArena />
+              <PvPArena velocity={velocity} />
             ) : activeTab === 'forge' ? (
               <div className="flex-1 overflow-y-auto pr-2 relative z-10 space-y-4">
                 {/* Categories */}
