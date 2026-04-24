@@ -1,0 +1,79 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // User data validation
+    function isValidUser(data) {
+      return data.keys().hasAll(['player', 'updatedAt']) &&
+             data.player is map &&
+             data.updatedAt is string;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false; // Users shouldn't be listable
+      
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      
+      allow update: if isOwner(userId) && 
+                      isValidUser(incoming()) && 
+                      incoming().updatedAt != existing().updatedAt;
+                      
+      allow delete: if isOwner(userId);
+    }
+
+    match /rooms/{roomId} {
+      // Helper for room actions
+      function isParticipant() {
+        return isSignedIn() && (request.auth.uid == resource.data.host.uid || (resource.data.opponent != null && request.auth.uid == resource.data.opponent.uid));
+      }
+
+      allow read: if isSignedIn();
+      allow list: if isSignedIn();
+      
+      allow create: if isSignedIn() && 
+                    isValidId(roomId) &&
+                    incoming().host.uid == request.auth.uid &&
+                    incoming().status == 'waiting';
+
+      allow update: if isSignedIn() && (
+        // Action: Join
+        (existing().status == 'waiting' && incoming().status == 'fighting' && 
+         incoming().opponent.uid == request.auth.uid && 
+         incoming().host.uid == existing().host.uid) ||
+        
+        // Action: Combat
+        (existing().status == 'fighting' && isParticipant() &&
+         incoming().status in ['fighting', 'finished'] &&
+         incoming().updatedAt != existing().updatedAt)
+      );
+
+      allow delete: if isSignedIn() && resource.data.host.uid == request.auth.uid;
+    }
+  }
+}

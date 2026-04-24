@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+@theme {
+  --font-cinzel: var(--font-cinzel);
+  --font-spectral: var(--font-spectral);
+}

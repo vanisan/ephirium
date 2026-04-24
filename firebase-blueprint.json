@@ -1,0 +1,56 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and game progress",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "player": {
+          "type": "object",
+          "properties": {
+            "level": { "type": "number" },
+            "exp": { "type": "number" },
+            "nextLevelExp": { "type": "number" },
+            "gold": { "type": "number" },
+            "shards": { "type": "number" },
+            "potions": { "type": "number" },
+            "hp": { "type": "number" },
+            "maxHp": { "type": "number" },
+            "stats": { "type": "object" },
+            "recipes": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "inventory": { "type": "array" },
+        "equipment": { "type": "object" },
+        "currentLocationId": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "player"]
+    },
+    "Room": {
+      "title": "Arena Room",
+      "description": "A match room for PvP",
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["waiting", "fighting", "finished"] },
+        "host": { "type": "object" },
+        "opponent": { "type": "object" },
+        "winner": { "type": "string" },
+        "lastAction": { "type": "object" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Main user document containing all game state"
+    },
+    "/rooms/{roomId}": {
+      "schema": "Room",
+      "description": "PvP match rooms"
+    }
+  }
+}
