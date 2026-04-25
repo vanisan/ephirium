@@ -16,6 +16,37 @@ interface FloatingText {
   life: number;
 }
 
+interface Particle {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  color: string;
+  life: number;
+  maxLife: number;
+  size: number;
+}
+
+interface Projectile {
+  id: string;
+  x: number;
+  y: number;
+  startX: number;
+  startY: number;
+  targetX: number;
+  targetY: number;
+  targetId?: string;
+  progress: number;
+  speed: number;
+  type: 'arrow' | 'magic';
+  color: string;
+  damage: number;
+  isCrit: boolean;
+  isStaff: boolean;
+  aoeRadius?: number;
+}
+
 export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
@@ -25,7 +56,9 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
   const lastRespawnTime = useRef<number>(0);
   const lastBuffUpdateTime = useRef<number>(0);
   const floatingTexts = useRef<FloatingText[]>([]);
-  const attackEffect = useRef<{ angle: number, progress: number } | null>(null);
+  const particles = useRef<Particle[]>([]);
+  const projectiles = useRef<Projectile[]>([]);
+  const attackEffect = useRef<{ angle: number, progress: number, type: 'melee' | 'ranged' | 'magic' } | null>(null);
 
   // Constants
   const PLAYER_SPEED = 4.5;
@@ -123,8 +156,10 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
 
     if (isAutoBattle) {
       const weapon = state.equipment.weapon;
-      const isBow = weapon?.icon === 'bow';
-      const isStaff = weapon?.icon === 'staff';
+      const wName = (weapon?.name || '').toLowerCase();
+      const wIcon = weapon?.icon || '';
+      const isBow = wIcon === 'bow' || wName.includes('лук');
+      const isStaff = wIcon === 'staff' || wName.includes('посох');
       const dynamicAttackRange = isBow ? 350 : isStaff ? 225 : ATTACK_RANGE;
 
       const nearestEnemy = enemies.reduce((prev: Enemy | null, current: Enemy) => {
@@ -149,19 +184,36 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
                 isCrit = true;
               }
             }
-
-            damageEnemy(nearestEnemy.id, finalDmg);
-
-            // Staff: 15% Vampirism
-            if (isStaff) {
-              const heal = Math.floor(finalDmg * 0.15);
-              if (heal > 0) {
-                state.healPlayer(heal);
-              }
-            }
             
-            // Melee: AOE 25% damage to nearby
-            if (!isBow && !isStaff) {
+            const angle = Math.atan2(nearestEnemy.y - player.y, nearestEnemy.x - player.x);
+
+            if (isBow || isStaff) {
+              // Ranged attack - spawn projectile
+              projectiles.current.push({
+                id: Math.random().toString(),
+                x: player.x,
+                y: player.y,
+                startX: player.x,
+                startY: player.y,
+                targetX: nearestEnemy.x,
+                targetY: nearestEnemy.y,
+                targetId: nearestEnemy.id,
+                progress: 0,
+                speed: isBow ? 0.08 : 0.05,
+                type: isBow ? 'arrow' : 'magic',
+                color: isBow ? (isCrit ? '#fbbf24' : '#e5e7eb') : '#8b5cf6',
+                damage: finalDmg,
+                isCrit,
+                isStaff
+              });
+              
+              // Small recoil or cast animation
+              attackEffect.current = { angle, progress: 0, type: isBow ? 'ranged' : 'magic' };
+            } else {
+              // Melee attack - immediate
+              damageEnemy(nearestEnemy.id, finalDmg);
+
+              // Melee: AOE 25% damage to nearby
               const AOE_RADIUS = 100;
               enemies.forEach(e => {
                 if (e.id !== nearestEnemy.id) {
@@ -171,23 +223,36 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
                   }
                 }
               });
+              
+              attackEffect.current = { angle, progress: 0, type: 'melee' };
+
+              // Add floating text
+              floatingTexts.current.push({
+                id: Math.random().toString(),
+                x: nearestEnemy.x,
+                y: nearestEnemy.y - 20,
+                text: isCrit ? `КРИТ -${finalDmg}` : `-${finalDmg}`,
+                color: isCrit ? '#fbbf24' : '#facc15',
+                life: 1.0
+              });
+              
+              // Hit particles
+              for (let i = 0; i < 5; i++) {
+                particles.current.push({
+                  id: Math.random().toString(),
+                  x: nearestEnemy.x,
+                  y: nearestEnemy.y,
+                  vx: (Math.random() - 0.5) * 10,
+                  vy: (Math.random() - 0.5) * 10,
+                  color: '#ffffff',
+                  life: 1.0,
+                  maxLife: 1.0,
+                  size: 3
+                });
+              }
             }
 
             lastAttackTime.current = time;
-            
-            // Trigger swing animation
-            const angle = Math.atan2(nearestEnemy.y - player.y, nearestEnemy.x - player.x);
-            attackEffect.current = { angle, progress: 0 };
-
-            // Add floating text
-            floatingTexts.current.push({
-              id: Math.random().toString(),
-              x: nearestEnemy.x,
-              y: nearestEnemy.y - 20,
-              text: isCrit ? `КРИТ -${finalDmg}` : `-${finalDmg}`,
-              color: isCrit ? '#fbbf24' : '#facc15',
-              life: 1.0
-            });
           }
         } else if (dist < ENEMY_DETECTION_RANGE && (velocity.current?.x || 0) === 0 && (velocity.current?.y || 0) === 0) {
           // Auto-move towards enemy if not controlled manually
@@ -239,13 +304,81 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         }
       });
   
-      // 4. Update Animations
+      // 4. Update Animations & Effects
       if (attackEffect.current) {
-        attackEffect.current.progress += 0.15;
+        attackEffect.current.progress += (attackEffect.current.type === 'melee' ? 0.15 : 0.25);
         if (attackEffect.current.progress >= 1.0) {
           attackEffect.current = null;
         }
       }
+      
+      // Update Projectiles
+      projectiles.current.forEach(p => {
+        p.progress += p.speed;
+        p.x = p.startX + (p.targetX - p.startX) * p.progress;
+        p.y = p.startY + (p.targetY - p.startY) * p.progress;
+        
+        // Add trail particle
+        if (Math.random() < 0.5) {
+          particles.current.push({
+            id: Math.random().toString(),
+            x: p.x + (Math.random() - 0.5) * 10,
+            y: p.y + (Math.random() - 0.5) * 10,
+            vx: (Math.random() - 0.5) * 2,
+            vy: (Math.random() - 0.5) * 2,
+            color: p.color,
+            life: 1.0,
+            maxLife: 1.0,
+            size: p.type === 'magic' ? 4 : 2
+          });
+        }
+      });
+      
+      const removedProjectiles = projectiles.current.filter(p => p.progress >= 1.0);
+      projectiles.current = projectiles.current.filter(p => p.progress < 1.0);
+      
+      removedProjectiles.forEach(p => {
+        if (p.targetId) {
+          damageEnemy(p.targetId, p.damage);
+          
+          if (p.isStaff) {
+             const heal = Math.floor(p.damage * 0.15);
+             if (heal > 0) state.healPlayer(heal);
+          }
+          
+          floatingTexts.current.push({
+            id: Math.random().toString(),
+            x: p.targetX,
+            y: p.targetY - 20,
+            text: p.isCrit ? `КРИТ -${p.damage}` : `-${p.damage}`,
+            color: p.isCrit ? '#fbbf24' : '#facc15',
+            life: 1.0
+          });
+          
+          // Hit explosion particles
+          for (let i = 0; i < 8; i++) {
+            particles.current.push({
+              id: Math.random().toString(),
+              x: p.targetX,
+              y: p.targetY,
+              vx: (Math.random() - 0.5) * 15,
+              vy: (Math.random() - 0.5) * 15,
+              color: p.color,
+              life: 1.0,
+              maxLife: 1.0,
+              size: p.type === 'magic' ? 5 : 3
+            });
+          }
+        }
+      });
+      
+      // Update Particles
+      particles.current.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.05;
+      });
+      particles.current = particles.current.filter(p => p.life > 0);
   
       // 5. Update Floating Texts
       floatingTexts.current.forEach(t => t.life -= 0.02);
@@ -518,7 +651,10 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
 
     // Dynamic Weapon Model based on equipment
     const equippedWeapon = useGameStore.getState().equipment.weapon;
-    const weaponIcon = equippedWeapon?.icon || 'sword';
+    const wName = (equippedWeapon?.name || '').toLowerCase();
+    const isWIconBow = equippedWeapon?.icon === 'bow' || wName.includes('лук');
+    const isWIconStaff = equippedWeapon?.icon === 'staff' || wName.includes('посох');
+    const weaponIcon = isWIconBow ? 'bow' : isWIconStaff ? 'staff' : (equippedWeapon?.icon || 'sword');
     const rarity = equippedWeapon?.rarity || 'common';
 
     const drawWeapon = () => {
@@ -697,21 +833,37 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     drawWeapon();
     ctx.restore();
 
-    // Attack Swing Arc
+    // Attack Effects (Aura, Flashes, Swing)
     if (isAttacking) {
-      ctx.save();
-      ctx.rotate(attackEffect.current!.angle);
-      const p = attackEffect.current!.progress;
-      const arcStart = -0.8;
-      const arcEnd = 0.8;
-      const currentArc = arcStart + (arcEnd - arcStart) * p;
-      
-      ctx.beginPath();
-      ctx.strokeStyle = `rgba(255, 255, 255, ${Math.max(0, 0.8 - p)})`;
-      ctx.lineWidth = 4;
-      ctx.arc(0, 0, 55, currentArc - 0.4, currentArc + 0.4);
-      ctx.stroke();
-      ctx.restore();
+      if (attackEffect.current!.type === 'melee') {
+        ctx.save();
+        ctx.rotate(attackEffect.current!.angle);
+        const p = attackEffect.current!.progress;
+        
+        ctx.beginPath();
+        // Inner bright arc
+        ctx.strokeStyle = `rgba(255, 220, 100, ${Math.max(0, 1.0 - p)})`;
+        ctx.lineWidth = 15 * (1 - p);
+        ctx.arc(0, 0, 60, -0.8 + 1.2 * p, -0.4 + 1.2 * p);
+        ctx.stroke();
+
+        ctx.beginPath();
+        // Outer glow arc
+        ctx.strokeStyle = `rgba(255, 50, 50, ${Math.max(0, 0.5 - p * 0.5)})`;
+        ctx.lineWidth = 30 * (1 - p);
+        ctx.arc(0, 0, 70, -0.8 + 1.2 * p, -0.2 + 1.2 * p);
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        // Cast or Release effect for staff/bow
+        ctx.save();
+        const p = attackEffect.current!.progress;
+        ctx.beginPath();
+        ctx.arc(0, 0, 30 + p * 30, 0, Math.PI * 2);
+        ctx.fillStyle = attackEffect.current!.type === 'magic' ? `rgba(139, 92, 246, ${1 - p})` : `rgba(250, 204, 21, ${1 - p})`;
+        ctx.fill();
+        ctx.restore();
+      }
     }
     
     ctx.restore();
@@ -729,6 +881,47 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       ctx.globalAlpha = t.life;
       ctx.fillStyle = t.color;
       ctx.fillText(t.text, t.x, t.y - (1.0 - t.life) * 50);
+    });
+    ctx.globalAlpha = 1.0;
+    
+    // Projectiles
+    projectiles.current.forEach(p => {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      const angle = Math.atan2(p.targetY - p.startY, p.targetX - p.startX);
+      ctx.rotate(angle);
+      
+      if (p.type === 'arrow') {
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-15, 0);
+        ctx.lineTo(15, 0);
+        ctx.moveTo(5, -5);
+        ctx.lineTo(15, 0);
+        ctx.lineTo(5, 5);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, 14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+      }
+      ctx.restore();
+    });
+    
+    // Particles
+    particles.current.forEach(p => {
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
     });
     ctx.globalAlpha = 1.0;
 

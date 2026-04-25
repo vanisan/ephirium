@@ -425,7 +425,7 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
                     <div className="space-y-6">
                        <div className="p-6 bg-black/80 border-2 border-[#d4af37]/40 rounded-xl text-center shadow-[0_0_30px_rgba(212,175,55,0.1)]">
                           <h4 className="text-xl sm:text-3xl font-cinzel text-[#d4af37] font-bold mb-3 tracking-[0.2em]">МАСТЕР БАФФОВ</h4>
-                          <p className="text-sm sm:text-lg text-[#e5d3b3]/80 uppercase tracking-widest leading-relaxed italic">"Приветствую, странник. За скромную плату я наделю тебя великой силой."</p>
+                          <p className="text-sm sm:text-lg text-[#e5d3b3]/80 uppercase tracking-widest leading-relaxed italic">&quot;Приветствую, странник. За скромную плату я наделю тебя великой силой.&quot;</p>
                        </div>
                        <div className="grid grid-cols-1 gap-2 sm:gap-4">
                           {[
