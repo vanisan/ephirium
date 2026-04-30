@@ -62,6 +62,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
   const floatingTexts = useRef<FloatingText[]>([]);
   const particles = useRef<Particle[]>([]);
   const projectiles = useRef<Projectile[]>([]);
+  const rotationRef = useRef<number>(0);
   const attackEffect = useRef<{ angle: number, progress: number, type: 'melee' | 'ranged' | 'magic' } | null>(null);
 
   // Constants
@@ -180,6 +181,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
             maxHp: data.maxHp,
             level: data.level,
             nickname: data.nickname,
+            rotation: data.rotation || 0,
             equipment: data.equipment,
             aura: data.aura
           });
@@ -203,12 +205,13 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           maxHp: currentState.player.maxHp,
           level: currentState.player.level,
           nickname: currentState.user.email?.split('@')[0] || currentState.user.uid,
+          rotation: rotationRef.current,
           equipment: {
             weapon: currentState.equipment?.weapon ? { icon: currentState.equipment.weapon.icon, rarity: currentState.equipment.weapon.rarity } : null,
             armor: currentState.equipment?.armor ? { rarity: currentState.equipment.armor.rarity } : null,
             accessory: currentState.equipment?.accessory ? { icon: currentState.equipment.accessory.icon, rarity: currentState.equipment.accessory.rarity } : null,
           },
-          aura: currentState.equipment?.aura ? { rarity: currentState.equipment.aura.rarity } : null,
+          aura: currentState.equipment?.aura ? { rarity: currentState.equipment.aura.rarity, color: currentState.equipment.aura.color || null } : null,
           updatedAt: Date.now()
         }, { merge: true });
       } catch (e) {
@@ -742,28 +745,48 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       // Target highlight
       if (state.currentTargetId === 'player_' + p.id) {
           ctx.beginPath();
-          ctx.arc(p.x, p.y, radius + 10, 0, Math.PI * 2);
-          ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
+          ctx.arc(p.x, p.y, radius + 15, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(255, 0, 0, 0.15)';
           ctx.fill();
           ctx.strokeStyle = '#ef4444';
           ctx.lineWidth = 2;
           ctx.stroke();
       }
 
-      // Draw online player body
       ctx.save();
       ctx.translate(p.x, p.y);
 
-      // Aura
-      if (p.aura) {
-         const auraRadius = p.aura.rarity === 'ultra' ? 200 : p.aura.rarity === 'mythic' ? 150 : p.aura.rarity === 'legendary' ? 120 : p.aura.rarity === 'epic' ? 100 : 80;
-         const auraColor = p.aura.color || '#3b82f6';
-         ctx.beginPath();
-         ctx.ellipse(0, 0, auraRadius, auraRadius * 0.5, 0, 0, Math.PI * 2);
-         ctx.strokeStyle = auraColor + '40';
-         ctx.lineWidth = 1;
-         ctx.stroke();
+      // --- AURA ---
+      const pAura = p.aura;
+      if (pAura) {
+        const auraRadius = pAura.rarity === 'ultra' ? 200 : pAura.rarity === 'mythic' ? 150 : pAura.rarity === 'legendary' ? 120 : pAura.rarity === 'epic' ? 100 : 80;
+        const numAuras = pAura.rarity === 'ultra' ? 4 : (pAura.rarity === 'mythic' || pAura.rarity === 'legendary') ? 3 : pAura.rarity === 'epic' ? 2 : 1;
+        const auraColor = pAura.rarity === 'ultra' ? '#cfb53b' : pAura.rarity === 'mythic' ? '#ef4444' : pAura.rarity === 'legendary' ? '#f59e0b' : pAura.rarity === 'epic' ? '#a855f7' : '#3b82f6';
+        
+        ctx.save();
+        ctx.rotate(time * 0.002);
+        for (let i = 0; i < numAuras; i++) {
+           const angleOffset = (i / numAuras) * Math.PI * 2;
+           const ax = Math.cos(angleOffset) * auraRadius;
+           const ay = Math.sin(angleOffset) * Math.abs(auraRadius * 0.5);
+           ctx.beginPath();
+           ctx.arc(ax, ay, 5, 0, Math.PI * 2);
+           ctx.fillStyle = auraColor;
+           ctx.shadowColor = auraColor;
+           ctx.shadowBlur = 8;
+           ctx.fill();
+        }
+        ctx.restore();
+        
+        ctx.beginPath();
+        ctx.ellipse(0, 0, auraRadius, auraRadius * 0.5, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = auraColor + '30';
+        ctx.lineWidth = 1;
+        ctx.stroke();
       }
+
+      // Rotate to current facing
+      ctx.rotate(p.rotation || 0);
 
       // Shadow
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
@@ -771,71 +794,89 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       ctx.arc(2, 2, radius, 0, Math.PI * 2);
       ctx.fill();
 
-      // Body / Armor
+      // Armor Visuals (Wings/Shoulders)
+      const pArmor = p.equipment?.armor;
+      if (pArmor) {
+        const r = pArmor.rarity;
+        if (r === 'mythic' || r === 'ultra') {
+          ctx.fillStyle = r === 'ultra' ? '#5b21b6' : '#991b1b';
+          ctx.beginPath();
+          ctx.moveTo(-15, -15);
+          ctx.bezierCurveTo(r === 'ultra' ? -70 : -50, -40, -60, 0, -15, -5);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(-15, 15);
+          ctx.bezierCurveTo(r === 'ultra' ? -70 : -50, 40, -60, 0, -15, 5);
+          ctx.fill();
+        }
+      }
+
+      // Hands
+      ctx.fillStyle = '#e5c298';
+      ctx.strokeStyle = '#d4af37';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(14, -12, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(14, 12, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+      // Body
       let bodyColor = '#e5c298';
-      let objArmor = p.equipment?.armor;
-      if (objArmor) {
-         const rarity = objArmor.rarity;
-         bodyColor = rarity === 'ultra' ? '#0f172a' : rarity === 'mythic' ? '#111' : rarity === 'legendary' ? '#fbbf24' : rarity === 'epic' ? '#c084fc' : '#64748b';
+      if (pArmor) {
+        const r = pArmor.rarity;
+        bodyColor = r === 'ultra' ? '#0f172a' : r === 'mythic' ? '#111' : r === 'legendary' ? '#fbbf24' : r === 'epic' ? '#c084fc' : '#64748b';
       }
       ctx.fillStyle = bodyColor;
       ctx.beginPath();
       ctx.arc(0, 0, radius, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = '#818cf8';
+      ctx.strokeStyle = '#d4af37';
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Simple Hand / Weapon
-      let wp = p.equipment?.weapon;
-      if (wp) {
-         ctx.save();
-         ctx.translate(15, 0); // Position of hand/weapon
-         const rarity = wp.rarity;
-         const isUltra = rarity === 'ultra';
-         const isMythic = rarity === 'mythic';
-         const isLegendary = rarity === 'legendary';
-         let wpColor = '#cbd5e1';
-         if (rarity === 'uncommon') wpColor = '#4ade80';
-         if (rarity === 'rare') wpColor = '#60a5fa';
-         if (rarity === 'epic') wpColor = '#7e22ce';
-         if (isLegendary) wpColor = '#fbbf24';
-         if (isMythic) wpColor = '#ef4444';
-         if (isUltra) wpColor = '#2dd4bf';
+      // Weapon
+      const pWp = p.equipment?.weapon;
+      if (pWp) {
+        const r = pWp.rarity;
+        let wpColor = '#cbd5e1';
+        if (r === 'uncommon') wpColor = '#4ade80';
+        if (r === 'rare') wpColor = '#60a5fa';
+        if (r === 'epic') wpColor = '#7e22ce';
+        if (r === 'legendary') wpColor = '#fbbf24';
+        if (r === 'mythic') wpColor = '#ef4444';
+        if (r === 'ultra') wpColor = '#2dd4bf';
 
-         if (wp.icon === 'bow') {
-            ctx.strokeStyle = wpColor;
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.arc(0, 0, 20, -Math.PI/2, Math.PI/2);
-            ctx.stroke();
-         } else if (wp.icon === 'staff') {
-            ctx.fillStyle = '#78350f';
-            ctx.fillRect(0, -2, 40, 4);
-            ctx.fillStyle = wpColor;
-            ctx.beginPath();
-            ctx.arc(40, 0, 8, 0, Math.PI*2);
-            ctx.fill();
-         } else {
-            ctx.fillStyle = wpColor;
-            ctx.fillRect(0, -3, 50, 6);
-         }
-         ctx.restore();
+        ctx.save();
+        ctx.translate(14, 12);
+        if (pWp.icon === 'bow') {
+          ctx.strokeStyle = wpColor;
+          ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.arc(0, 0, 20, -Math.PI/2, Math.PI/2); ctx.stroke();
+        } else if (pWp.icon === 'staff') {
+          ctx.fillStyle = '#78350f'; ctx.fillRect(0, -2, 40, 4);
+          ctx.fillStyle = wpColor; ctx.beginPath(); ctx.arc(40, 0, 8, 0, Math.PI*2); ctx.fill();
+        } else {
+          ctx.fillStyle = wpColor;
+          ctx.beginPath();
+          ctx.moveTo(0, -4); ctx.lineTo(50, -2); ctx.lineTo(50, 2); ctx.lineTo(0, 4);
+          ctx.closePath(); ctx.fill();
+          ctx.strokeStyle = 'white'; ctx.lineWidth = 1; ctx.stroke();
+        }
+        ctx.restore();
       }
 
       ctx.restore();
 
-      // HP Bar
+      // HUD for other player (HP & Name)
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(p.x - radius, p.y - radius - 15, radius * 2, 5);
+      ctx.fillRect(p.x - 20, p.y - 40, 40, 6);
       ctx.fillStyle = '#3b82f6';
-      ctx.fillRect(p.x - radius, p.y - radius - 15, (p.hp / p.maxHp) * (radius * 2), 5);
-
-      // Name
-      ctx.font = '12px Cinzel';
-      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(p.x - 20, p.y - 40, (p.hp / p.maxHp) * 40, 6);
+      
+      ctx.font = 'bold 12px Cinzel';
+      ctx.fillStyle = '#fef3c7';
       ctx.textAlign = 'center';
-      ctx.fillText(`Lv.${p.level} ${p.nickname}`, p.x, p.y - radius - 20);
+      ctx.shadowBlur = 4; ctx.shadowColor = 'black';
+      ctx.fillText(`Lv.${p.level} ${p.nickname}`, p.x, p.y - 45);
+      ctx.shadowBlur = 0;
     });
 
     // Player
@@ -876,7 +917,9 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     const currentVelocity = velocity.current || { x: 0, y: 0 };
     const facingAngle = currentVelocity.x !== 0 || currentVelocity.y !== 0 
       ? Math.atan2(currentVelocity.y, currentVelocity.x) 
-      : 0;
+      : rotationRef.current;
+    
+    rotationRef.current = facingAngle;
     
     // --- DRAW BODY & HANDS ---
     ctx.save();

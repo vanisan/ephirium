@@ -18,6 +18,7 @@ export interface Item {
   type: 'weapon' | 'armor' | 'accessory' | 'aura';
   rarity: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic' | 'ultra';
   level: number;
+  color?: string;
   stats: {
     damage?: number;
     defense?: number;
@@ -113,6 +114,7 @@ export interface OnlinePlayer {
   maxHp: number;
   level: number;
   nickname: string;
+  rotation?: number;
   equipment?: any;
   aura?: any;
 }
