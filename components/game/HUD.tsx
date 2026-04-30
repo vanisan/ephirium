@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useGameStore, Item, Location } from '@/lib/store';
-import { Shield, Sword, Package, User, Heart, Zap, Award, Coins, Map as MapIcon, Hammer, Gem, LogOut } from 'lucide-react';
+import { Shield, Sword, Swords, Package, User, Heart, Zap, Award, Coins, Map as MapIcon, Hammer, Gem, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';
@@ -12,6 +12,17 @@ import { PvPArena } from './PvPArena';
 interface HUDProps {
   velocity: React.RefObject<{ x: number, y: number }>;
 }
+
+export const formatNumber = (num: number): string => {
+  if (Number.isNaN(num) || num === undefined || num === null) return '0';
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(2).replace(/\.00$/, '') + 'm';
+  }
+  if (num >= 10000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  }
+  return num.toString();
+};
 
 export const HUD: React.FC<HUDProps> = ({ velocity }) => {
   const { player, isAutoBattle, toggleAutoBattle, inventory, equipment, equipItem, sellItem, locations, currentLocationId, teleport, craftItem, usePotion, user, setUser, saveGame, increaseStat, shopItems, buyInShop, applyBuff, isDead, resurrect } = useGameStore();
@@ -87,7 +98,7 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
         </div>
       )}
 
-      {/* Mini-Map */}
+      {/* Mini-Map & Coordinates */}
       <div className="absolute top-24 left-4 w-32 h-32 bg-black/60 border border-[#b8860b]/40 rounded overflow-hidden pointer-events-auto shadow-lg backdrop-blur-sm hidden sm:block">
         <div className="relative w-full h-full">
           {/* Player dot */}
@@ -106,9 +117,24 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
               />
             );
           })}
+          
+          {/* Online Players dots */}
+          {useGameStore(state => state.onlinePlayers)?.map(p => {
+            const relX = (p.x - player.x) / 10 + 64;
+            const relY = (p.y - player.y) / 10 + 64;
+            if (relX < 0 || relX > 128 || relY < 0 || relY > 128) return null;
+            return (
+              <div 
+                key={p.id} 
+                className="absolute w-1.5 h-1.5 bg-indigo-500 rounded-full"
+                style={{ left: relX, top: relY }}
+              />
+            );
+          })}
         </div>
-            <div className="absolute bottom-0 inset-x-0 bg-black/80 text-[10px] sm:text-xs font-cinzel text-center py-1 text-[#d4af37] uppercase tracking-[0.2em] leading-none border-t border-[#d4af37]/20">
-          {locations.find(l => l.id === currentLocationId)?.name}
+        <div className="absolute bottom-0 inset-x-0 bg-black/80 text-[10px] sm:text-xs font-cinzel text-center py-1 text-[#d4af37] uppercase tracking-[0.2em] leading-none border-t border-[#d4af37]/20 flex justify-between px-2">
+          <span>{locations.find(l => l.id === currentLocationId)?.name}</span>
+          <span>{Math.round(player.x)},{Math.round(player.y)}</span>
         </div>
       </div>
 
@@ -135,21 +161,21 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
                 <motion.div 
                   className="absolute inset-y-0 left-0 bg-red-600 shadow-[0_0_10px_rgba(255,0,0,0.3)]"
                   initial={{ width: '100%' }}
-                  animate={{ width: `${hpPercentage}%` }}
+                  animate={{ width: `${Number.isNaN(hpPercentage) ? 0 : hpPercentage}%` }}
                   transition={{ duration: 0.3 }}
                 />
                 <div className="absolute inset-0 flex items-center justify-center text-xs sm:text-base font-bold text-white drop-shadow-md">
-                   {Math.round(player.hp)} / {player.maxHp}
+                   {formatNumber(Number.isNaN(player.hp) ? 0 : Math.round(player.hp))} / {formatNumber(Number.isNaN(player.maxHp) ? 0 : player.maxHp)}
                 </div>
               </div>
               <div className="relative h-2 sm:h-4 bg-gray-900 border border-[#d4af37]/30 overflow-hidden">
                 <motion.div 
                   className="absolute inset-y-0 left-0 bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.4)]"
-                  animate={{ width: `${expPercentage}%` }}
+                  animate={{ width: `${Number.isNaN(expPercentage) ? 0 : expPercentage}%` }}
                   transition={{ duration: 0.5 }}
                 />
                 <div className="absolute inset-0 flex items-center justify-center text-[10px] sm:text-sm font-bold text-white drop-shadow-md font-mono">
-                   {player.exp} / {player.nextLevelExp}
+                   {formatNumber(Number.isNaN(player.exp) ? 0 : player.exp)} / {formatNumber(Number.isNaN(player.nextLevelExp) ? 1 : player.nextLevelExp)}
                 </div>
               </div>
             </div>
@@ -182,12 +208,12 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
             <div className="flex items-center gap-2 bg-[#1a1612]/90 px-3 sm:px-4 py-1 sm:py-2 rounded-full border border-[#b8860b]/30 self-start backdrop-blur-sm ml-1">
             <div className="flex items-center gap-2 text-[#d4af37] font-cinzel font-bold">
               <Coins size={14} className="sm:w-4 sm:h-4" />
-              <span className="text-xs sm:text-base tracking-widest">{player.gold}</span>
+              <span className="text-xs sm:text-base tracking-widest">{formatNumber(player.gold)}</span>
             </div>
             <div className="w-px h-3 sm:h-4 bg-[#b8860b]/30 mx-1 sm:mx-2" />
             <div className="flex items-center gap-2 text-blue-400 font-cinzel font-bold">
               <Gem size={14} className="sm:w-4 sm:h-4" />
-              <span className="text-xs sm:text-base tracking-widest">{player.shards}</span>
+              <span className="text-xs sm:text-base tracking-widest">{formatNumber(player.shards)}</span>
             </div>
           </div>
         </div>
@@ -212,7 +238,6 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
       <div className="sm:hidden fixed bottom-0 inset-x-0 bg-[#0f0d0b]/98 border-t-2 border-[#4a3b2c] pointer-events-auto p-2 flex justify-around items-center z-[60] backdrop-blur-xl">
         <NavButton active={activeTab === 'character'} onClick={() => setActiveTab('character')} icon={<User size={20} />} label="ГЕРОЙ" />
         <NavButton active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} icon={<Package size={20} />} label="СУМКА" />
-        <NavButton active={activeTab === 'arena'} onClick={() => setActiveTab('arena')} icon={<Sword size={20} />} label="АРЕНА" color="amber" />
         <NavButton active={activeTab === 'city'} onClick={() => setActiveTab('city')} icon={<Hammer size={20} />} label="ГОРОД" />
         <NavButton active={activeTab === 'locations'} onClick={() => setActiveTab('locations')} icon={<MapIcon size={20} />} label="МИР" />
       </div>
@@ -242,7 +267,6 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
         <button onClick={toggleAutoBattle} className={`p-4 rounded-xl border transition-all ${isAutoBattle ? 'bg-[#b8860b] text-[#1a1612]' : 'bg-[#1a1612]/80 border-[#4a3b2c] text-[#e5d3b3]/40'}`}><Zap size={24} /><span className="text-[10px] block font-bold mt-1 uppercase">Авто</span></button>
         <button onClick={() => setActiveTab(activeTab === 'character' ? null : 'character')} className={`p-4 rounded-xl border transition-all ${activeTab === 'character' ? 'bg-[#e5d3b3] text-[#1a1612]' : 'bg-[#1a1612]/80 border-[#4a3b2c] text-[#e5d3b3]'}`}><User size={24} /><span className="text-[10px] block font-bold mt-1 uppercase">Герой</span></button>
         <button onClick={() => setActiveTab(activeTab === 'inventory' ? null : 'inventory')} className={`p-4 rounded-xl border transition-all ${activeTab === 'inventory' ? 'bg-[#e5d3b3] text-[#1a1612]' : 'bg-[#1a1612]/80 border-[#4a3b2c] text-[#e5d3b3]'}`}><Package size={24} /><span className="text-[10px] block font-bold mt-1 uppercase">Сумка</span></button>
-        <button onClick={() => setActiveTab(activeTab === 'arena' ? null : 'arena')} className={`p-4 rounded-xl border transition-all ${activeTab === 'arena' ? 'bg-red-600 text-white border-red-400' : 'bg-[#1a1612]/80 border-[#4a3b2c] text-red-500'}`}><Sword size={24} /><span className="text-[10px] block font-bold mt-1 uppercase">Арена</span></button>
         <button onClick={() => setActiveTab(activeTab === 'city' ? null : 'city')} className={`p-4 rounded-xl border transition-all ${activeTab === 'city' ? 'bg-amber-600 text-white border-amber-400' : 'bg-[#1a1612]/80 border-[#4a3b2c] text-amber-500'}`}><Hammer size={24} /><span className="text-[10px] block font-bold mt-1 uppercase">Город</span></button>
         <button onClick={() => setActiveTab(activeTab === 'locations' ? null : 'locations')} className={`p-4 rounded-xl border transition-all ${activeTab === 'locations' ? 'bg-[#e5d3b3] text-[#1a1612]' : 'bg-[#1a1612]/80 border-[#4a3b2c] text-[#e5d3b3]'}`}><MapIcon size={24} /><span className="text-[10px] block font-bold mt-1 uppercase">ТП</span></button>
       </div>
@@ -282,7 +306,7 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
             </div>
 
             {activeTab === 'inventory' ? (
-              <div className="flex-1 overflow-y-auto grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-2 sm:gap-3 pb-4 [&::-webkit-scrollbar]:hidden">
+              <div className="flex-1 overflow-y-auto grid gap-2 sm:gap-3 pb-4 [&::-webkit-scrollbar]:hidden content-start" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(3rem, 1fr))' }}>
                 {inventory.length === 0 && (
                   <div className="col-span-full py-10 sm:py-20 text-center text-[#e5d3b3]/20 uppercase font-cinzel font-bold tracking-[0.3em] text-xs sm:text-base">
                     Ваша сумка пуста
@@ -365,23 +389,26 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
                       )}
 
                       <div className="space-y-2 sm:space-y-3 pb-8">
-                        {['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'].map((rarity) => {
-                          const hasRecipe = player.recipes.includes(rarity);
+                        {['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic', 'ultra'].map((rarity) => {
                           const cost = {
-                            common: { shards: 10, gold: 50 },
-                            uncommon: { shards: 40, gold: 200 },
-                            rare: { shards: 150, gold: 1000 },
-                            epic: { shards: 500, gold: 5000 },
-                            legendary: { shards: 2000, gold: 25000 },
-                            mythic: { shards: 10000, gold: 150000 }
+                            common: { shards: 10, gold: 50, recipes: 0 },
+                            uncommon: { shards: 40, gold: 200, recipes: 1 },
+                            rare: { shards: 150, gold: 1000, recipes: 3 },
+                            epic: { shards: 500, gold: 5000, recipes: 5 },
+                            legendary: { shards: 2000, gold: 25000, recipes: 10 },
+                            mythic: { shards: 10000, gold: 150000, recipes: 25 },
+                            ultra: { shards: 300000, gold: 300000, recipes: 50 }
                           }[rarity]!;
-                          const canAfford = player.shards >= cost.shards && player.gold >= cost.gold;
+                          
+                          const playerRecipesCount = player.recipes ? (player.recipes[rarity] || 0) : 0;
+                          const hasEnoughRecipes = playerRecipesCount >= cost.recipes;
+                          const canAfford = player.shards >= cost.shards && player.gold >= cost.gold && hasEnoughRecipes;
                           const displayType = craftType === 'melee' ? 'sword' : craftType === 'ranged' ? 'bow' : craftType;
 
                           return (
                             <div key={rarity} 
                                 className={`p-3 sm:p-4 rounded border flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 transition-all ${
-                                  hasRecipe ? 'bg-[#1a2612]/30 border-[#b8860b]/30' : 'bg-black/40 border-red-900/40 opacity-40'
+                                  hasEnoughRecipes ? 'bg-[#1a2612]/30 border-[#b8860b]/30' : 'bg-[#1a1612]/60 border-gray-800/40 opacity-80'
                                 }`}>
                               <div className="flex items-center gap-3 sm:gap-4 shrink-0">
                                 <div className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center border rounded bg-black/60 shadow-[inset_0_0_10px_rgba(0,0,0,0.5)]" style={{ borderColor: getRarityColor(rarity) }}>
@@ -389,7 +416,7 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
                                 </div>
                                 <div className="min-w-0">
                                   <div className="text-[10px] sm:text-xs font-cinzel uppercase tracking-[0.1em] mb-0.5 font-bold truncate" style={{ color: getRarityColor(rarity) }}>
-                                    {rarity === 'common' ? 'ОБЫЧНЫЙ' : rarity === 'uncommon' ? 'НЕОБЫЧНЫЙ' : rarity === 'rare' ? 'РЕДКИЙ' : rarity === 'epic' ? 'ЭПИЧЕСКИЙ' : rarity === 'legendary' ? 'ЛЕГЕНДАРНЫЙ' : 'МИФИЧЕСКИЙ'} {craftType === 'melee' ? 'МЕЧ' : craftType === 'ranged' ? 'ЛУК' : craftType === 'staff' ? 'ПОСОХ' : craftType === 'armor' ? 'ДОСПЕХ' : 'АМУЛЕТ'}
+                                    {rarity === 'common' ? 'ОБЫЧНЫЙ' : rarity === 'uncommon' ? 'НЕОБЫЧНЫЙ' : rarity === 'rare' ? 'РЕДКИЙ' : rarity === 'epic' ? 'ЭПИЧЕСКИЙ' : rarity === 'legendary' ? 'ЛЕГЕНДАРНЫЙ' : rarity === 'mythic' ? 'МИФИЧЕСКИЙ' : 'УЛЬТРА'} {craftType === 'melee' ? 'МЕЧ' : craftType === 'ranged' ? 'ЛУК' : craftType === 'staff' ? 'ПОСОХ' : craftType === 'armor' ? 'ДОСПЕХ' : 'АМУЛЕТ'}
                                   </div>
                                   <div className="text-[8px] text-amber-500/80 mb-1 font-bold tracking-tight">
                                     {craftType === 'ranged' ? 'Дальний бой | 30% Шанс x2 урона' : craftType === 'melee' ? 'Ближний бой | 25% Урон по области' : craftType === 'staff' ? 'Ср. дистанция | 15% Вампиризм' : craftType === 'armor' ? 'Защита и Здоровье' : 'Доп. Урон'}
@@ -397,11 +424,16 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
                                   <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[8px] sm:text-[9px] font-cinzel uppercase tracking-widest leading-none">
                                     <span className={player.gold >= cost.gold ? 'text-[#d4af37]' : 'text-red-500'}>{cost.gold} золота</span>
                                     <span className={player.shards >= cost.shards ? 'text-blue-400' : 'text-red-500'}>{cost.shards} осколков</span>
+                                    {cost.recipes > 0 && (
+                                      <span className={hasEnoughRecipes ? 'text-purple-400' : 'text-red-500'}>
+                                        Частиц: {playerRecipesCount}/{cost.recipes}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               </div>
 
-                              {hasRecipe ? (
+                              {hasEnoughRecipes || cost.recipes === 0 ? (
                                 <button 
                                   disabled={!canAfford}
                                   onClick={() => craftItem(rarity, displayType as any)}
@@ -412,7 +444,10 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
                                   {canAfford ? 'КРАФТ' : 'НЕДОСТАТОЧНО'}
                                 </button>
                               ) : (
-                                <div className="text-[8px] font-cinzel text-red-500/60 uppercase tracking-widest px-3 py-1.5 border border-red-500/20 rounded bg-red-950/20 text-center">Нужен чертеж</div>
+                                <div className="text-[8px] font-cinzel text-red-500/60 flex flex-col justify-center uppercase tracking-widest px-3 py-1.5 border border-red-500/20 rounded bg-red-950/20 text-center">
+                                  <span>Нужны частицы</span>
+                                  <span className="text-[7px] text-gray-500 mt-0.5 normal-case">(падают с монстров)</span>
+                                </div>
                               )}
                             </div>
                           );
@@ -459,43 +494,88 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
                  )}
               </div>
             ) : activeTab === 'locations' ? (
-              <div className="flex-1 space-y-4 overflow-y-auto pb-4 [&::-webkit-scrollbar]:hidden">
-                {locations.map((loc) => (
-                  <div 
-                    key={loc.id}
-                    className={`p-4 sm:p-6 rounded border transition-all ${
-                      currentLocationId === loc.id 
-                        ? 'bg-[#d4af37]/20 border-[#d4af37] shadow-[0_0_15px_rgba(212,175,55,0.3)]' 
-                        : 'bg-[#1a1612] border-[#4a3b2c] hover:border-[#b8860b]/50'
-                    }`}
-                  >
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                      <div>
-                        <h4 className="text-lg sm:text-2xl font-cinzel font-bold text-[#e5d3b3]">{loc.name}</h4>
-                        <div className="flex gap-4 mt-1">
-                          <span className="text-[10px] sm:text-xs font-cinzel text-[#d4af37]/60 uppercase tracking-widest">Мин. Ур: {loc.minLevel}</span>
-                          <span className="text-[10px] sm:text-xs font-cinzel text-[#d4af37]/60 uppercase tracking-widest">Враги: {loc.enemyBaseHp} HP</span>
+              <div className="flex-1 space-y-8 overflow-y-auto pb-4 [&::-webkit-scrollbar]:hidden">
+                <div className="space-y-4">
+                  <h3 className="text-xl font-cinzel font-bold text-[#d4af37] border-b border-[#d4af37]/30 pb-2">Локации</h3>
+                  {locations.filter(l => !l.isDungeon).map((loc) => (
+                    <div 
+                      key={loc.id}
+                      className={`p-4 sm:p-6 rounded border transition-all ${
+                        currentLocationId === loc.id 
+                          ? 'bg-[#d4af37]/20 border-[#d4af37] shadow-[0_0_15px_rgba(212,175,55,0.3)]' 
+                          : 'bg-[#1a1612] border-[#4a3b2c] hover:border-[#b8860b]/50'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <div>
+                          <h4 className="text-lg sm:text-2xl font-cinzel font-bold text-[#e5d3b3]">{loc.name}</h4>
+                          <div className="text-xs text-amber-500/80 my-1">{loc.description}</div>
+                          <div className="flex gap-4 mt-1">
+                            <span className="text-[10px] sm:text-xs font-cinzel text-[#d4af37]/60 uppercase tracking-widest flex items-center gap-1"><User size={12} /> Ур: {loc.minLevel}+</span>
+                            <span className="text-[10px] sm:text-xs font-cinzel text-[#d4af37]/60 uppercase tracking-widest flex items-center gap-1"><Swords size={12} /> Враги: {loc.enemyBaseHp} HP</span>
+                          </div>
                         </div>
+                        
+                        {currentLocationId === loc.id ? (
+                          <span className="px-4 py-2 bg-[#d4af37]/30 text-[#d4af37] font-cinzel font-bold text-xs rounded border border-[#d4af37]/50 uppercase">ВЫ ТУТ</span>
+                        ) : (
+                          <button 
+                            disabled={player.level < loc.minLevel || player.gold < loc.cost}
+                            onClick={() => teleport(loc.id)}
+                            className={`px-6 py-2 rounded font-cinzel font-bold text-xs uppercase transition-all whitespace-nowrap ${
+                              player.level >= loc.minLevel && player.gold >= loc.cost
+                                ? 'bg-[#b8860b] text-[#1a1612] hover:bg-[#d4af37]'
+                                : 'bg-black/40 text-gray-600 border border-gray-800 cursor-not-allowed'
+                            }`}
+                          >
+                            ТП ({loc.cost === 0 ? 'БЕСПЛАТНО' : <>{loc.cost} <Coins size={10} className="inline mb-1" /></>})
+                          </button>
+                        )}
                       </div>
-                      
-                      {currentLocationId === loc.id ? (
-                        <span className="px-4 py-2 bg-[#d4af37]/30 text-[#d4af37] font-cinzel font-bold text-xs rounded border border-[#d4af37]/50 uppercase">ВЫ ТУТ</span>
-                      ) : (
-                        <button 
-                          disabled={player.level < loc.minLevel || player.gold < loc.cost}
-                          onClick={() => teleport(loc.id)}
-                          className={`px-6 py-2 rounded font-cinzel font-bold text-xs uppercase transition-all ${
-                            player.level >= loc.minLevel && player.gold >= loc.cost
-                              ? 'bg-[#b8860b] text-[#1a1612] hover:bg-[#d4af37]'
-                              : 'bg-black/40 text-gray-600 border border-gray-800 cursor-not-allowed'
-                          }`}
-                        >
-                          ТП ({loc.cost} <Coins size={10} className="inline mb-1" />)
-                        </button>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-xl font-cinzel font-bold text-red-500 border-b border-red-900/30 pb-2">Подземелья</h3>
+                  {locations.filter(l => l.isDungeon).map((loc) => (
+                    <div 
+                      key={loc.id}
+                      className={`p-4 sm:p-6 rounded border transition-all ${
+                        currentLocationId === loc.id 
+                          ? 'bg-red-900/20 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.3)]' 
+                          : 'bg-[#1a0f0f] border-red-900/40 hover:border-red-500/50'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <div>
+                          <h4 className="text-lg sm:text-2xl font-cinzel font-bold text-red-400">{loc.name}</h4>
+                          <div className="text-xs text-red-500/80 my-1">{loc.description}</div>
+                          <div className="flex gap-4 mt-1">
+                            <span className="text-[10px] sm:text-xs font-cinzel text-red-400/60 uppercase tracking-widest flex items-center gap-1"><User size={12} /> Ур: {loc.minLevel}+</span>
+                            <span className="text-[10px] sm:text-xs font-cinzel text-red-400/60 uppercase tracking-widest flex items-center gap-1"><Swords size={12} /> Враги: {loc.enemyBaseHp} HP</span>
+                          </div>
+                        </div>
+                        
+                        {currentLocationId === loc.id ? (
+                          <span className="px-4 py-2 bg-red-900/30 text-red-500 font-cinzel font-bold text-xs rounded border border-red-900/50 uppercase">ВЫ ТУТ</span>
+                        ) : (
+                          <button 
+                            disabled={player.level < loc.minLevel || player.gold < loc.cost}
+                            onClick={() => teleport(loc.id)}
+                            className={`px-6 py-2 rounded font-cinzel font-bold text-xs uppercase transition-all whitespace-nowrap ${
+                              player.level >= loc.minLevel && player.gold >= loc.cost
+                                ? 'bg-red-700 text-white hover:bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.3)] hover:shadow-[0_0_20px_rgba(220,38,38,0.5)]'
+                                : 'bg-black/40 text-gray-600 border border-gray-800 cursor-not-allowed'
+                            }`}
+                          >
+                            ВХОД ({loc.cost} <Coins size={10} className="inline mb-1" />)
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
               <div className="flex-1 space-y-6 sm:space-y-10 overflow-y-auto pb-6 [&::-webkit-scrollbar]:hidden">
@@ -530,9 +610,13 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
                 </div>
                 <div className="space-y-4">
                   <h3 className="text-xs sm:text-sm font-bold font-cinzel text-[#d4af37] uppercase tracking-[0.2em] border-l-2 border-[#d4af37] pl-3">Боевые показатели</h3>
-                  <div className="space-y-2 sm:space-y-4">
+                  <div className="grid grid-cols-2 gap-2 sm:gap-4">
                     <StatRow label="Урон" value={Math.round(player.stats.damage)} icon={<Sword size={14} className="text-[#d4af37]" />} />
                     <StatRow label="Крит. Шанс" value={`${Math.round(player.stats.critRate || 10)}%`} icon={<Zap size={14} className="text-amber-400" />} />
+                    <StatRow label="Крит. Урон" value={`${Math.round(player.stats.critDamage || 150)}%`} icon={<Zap size={14} className="text-orange-400" />} />
+                    <StatRow label="Уклонение" value={`${Math.round(player.stats.dodge || 0)}%`} icon={<Shield size={14} className="text-blue-300" />} />
+                    <StatRow label="Вампиризм" value={`${Math.round(player.stats.lifesteal || 0)}%`} icon={<Heart size={14} className="text-red-600" />} />
+                    <StatRow label="Реген HP" value={`${Math.round(player.stats.hpRegen || 0)}/сек`} icon={<Heart size={14} className="text-green-500" />} />
                     <StatRow label="Порезка Урона" value={`${(player.stats.damageReduction || 0).toFixed(1)}%`} icon={<Shield size={14} className="text-blue-400" />} />
                     <StatRow label="Доп. Опыт" value={`+${(((player.stats.expMultiplier || 1) - 1) * 100).toFixed(0)}%`} icon={<Gem size={14} className="text-purple-400" />} />
                   </div>
@@ -552,10 +636,11 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
 
                 <div className="space-y-4 sm:space-y-6 pt-6 sm:pt-10 border-t border-[#4a3b2c]">
                   <h3 className="text-[10px] sm:text-sm font-bold font-cinzel text-[#d4af37] uppercase tracking-[0.3em] border-l-2 border-[#d4af37] pl-3">Экипировка</h3>
-                  <div className="grid grid-cols-3 gap-4 sm:gap-8">
+                  <div className="grid grid-cols-4 gap-4 sm:gap-6">
                     <EquipmentSlot label="Оружие" item={equipment.weapon} onClick={(it) => setSelectedItem(it)} />
                     <EquipmentSlot label="Броня" item={equipment.armor} onClick={(it) => setSelectedItem(it)} />
                     <EquipmentSlot label="Аксессуар" item={equipment.accessory} onClick={(it) => setSelectedItem(it)} />
+                    <EquipmentSlot label="Аура" item={equipment.aura} onClick={(it) => setSelectedItem(it)} />
                   </div>
                 </div>
 
@@ -595,7 +680,7 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
               <div className="absolute top-0 right-0 w-32 h-32 bg-[#d4af37]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
               
               <div className="flex items-center gap-4 mb-6">
-                <div className={`w-20 h-20 bg-[#0f0d0b] border-2 rounded flex items-center justify-center p-2`} 
+                <div className={`w-20 h-20 bg-[#0f0d0b] border-2 rounded flex items-center justify-center p-2 shrink-0`} 
                      style={{ borderColor: getRarityColor(selectedItem.rarity) }}>
                   <ItemIcon icon={selectedItem.icon} name={selectedItem.name} rarity={selectedItem.rarity} />
                 </div>
@@ -603,9 +688,9 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
                   <div className="text-[10px] font-cinzel font-bold uppercase tracking-tight opacity-50" style={{ color: getRarityColor(selectedItem.rarity) }}>
                     {selectedItem.rarity}
                   </div>
-                  <h3 className="text-xl font-cinzel font-bold text-[#e5d3b3]">{selectedItem.name}</h3>
-                  <div className="text-xs text-[#e5d3b3]/40 font-cinzel uppercase tracking-widest mt-1">
-                    Уровень {selectedItem.level || 1}
+                  <h3 className="text-xl sm:text-2xl font-cinzel font-bold text-[#e5d3b3]">{selectedItem.name}</h3>
+                  <div className={`text-xs font-cinzel uppercase tracking-widest mt-1 ${player.level < selectedItem.level ? 'text-red-500 font-bold' : 'text-[#e5d3b3]/40'}`}>
+                    Требуемый Уровень: {selectedItem.level}
                   </div>
                 </div>
               </div>
@@ -614,7 +699,7 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
                 {selectedItem.stats.damage && (
                   <div className="flex justify-between items-center">
                     <span className="text-xs font-cinzel text-[#e5d3b3]/60 uppercase tracking-widest">Урон</span>
-                    <span className="text-lg font-bold text-red-500">+{selectedItem.stats.damage}</span>
+                    <span className="text-lg font-bold text-red-500">+{formatNumber(selectedItem.stats.damage)}</span>
                   </div>
                 )}
                 {selectedItem.stats.atkSpeed && (
@@ -626,13 +711,55 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
                 {selectedItem.stats.defense && (
                   <div className="flex justify-between items-center">
                     <span className="text-xs font-cinzel text-[#e5d3b3]/60 uppercase tracking-widest">Защита</span>
-                    <span className="text-lg font-bold text-blue-500">+{selectedItem.stats.defense}</span>
+                    <span className="text-lg font-bold text-blue-500">+{formatNumber(selectedItem.stats.defense)}</span>
                   </div>
                 )}
                 {selectedItem.stats.hp && (
                   <div className="flex justify-between items-center">
                     <span className="text-xs font-cinzel text-[#e5d3b3]/60 uppercase tracking-widest">Здоровье</span>
-                    <span className="text-lg font-bold text-green-500">+{selectedItem.stats.hp}</span>
+                    <span className="text-lg font-bold text-green-500">+{formatNumber(selectedItem.stats.hp)}</span>
+                  </div>
+                )}
+                {selectedItem.stats.str && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-cinzel text-[#e5d3b3]/60 uppercase tracking-widest">Сила</span>
+                    <span className="text-lg font-bold text-red-400">+{formatNumber(selectedItem.stats.str)}</span>
+                  </div>
+                )}
+                {selectedItem.stats.dex && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-cinzel text-[#e5d3b3]/60 uppercase tracking-widest">Ловкость</span>
+                    <span className="text-lg font-bold text-yellow-400">+{formatNumber(selectedItem.stats.dex)}</span>
+                  </div>
+                )}
+                {selectedItem.stats.int && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-cinzel text-[#e5d3b3]/60 uppercase tracking-widest">Интеллект</span>
+                    <span className="text-lg font-bold text-blue-400">+{formatNumber(selectedItem.stats.int)}</span>
+                  </div>
+                )}
+                {selectedItem.stats.lifesteal && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-cinzel text-[#e5d3b3]/60 uppercase tracking-widest">Вампиризм</span>
+                    <span className="text-lg font-bold text-red-600">+{selectedItem.stats.lifesteal}%</span>
+                  </div>
+                )}
+                {selectedItem.stats.dodge && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-cinzel text-[#e5d3b3]/60 uppercase tracking-widest">Уклонение</span>
+                    <span className="text-lg font-bold text-blue-300">+{selectedItem.stats.dodge}%</span>
+                  </div>
+                )}
+                {selectedItem.stats.critDamage && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-cinzel text-[#e5d3b3]/60 uppercase tracking-widest">Крит. Урон</span>
+                    <span className="text-lg font-bold text-orange-400">+{formatNumber(selectedItem.stats.critDamage)}%</span>
+                  </div>
+                )}
+                {selectedItem.stats.hpRegen && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-cinzel text-[#e5d3b3]/60 uppercase tracking-widest">Реген HP</span>
+                    <span className="text-lg font-bold text-green-500">+{formatNumber(selectedItem.stats.hpRegen)}/сек</span>
                   </div>
                 )}
 
@@ -654,11 +781,16 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
 
               <div className="grid grid-cols-2 gap-3">
                 <button 
+                  disabled={player.level < selectedItem.level}
                   onClick={() => {
                     equipItem(selectedItem);
                     setSelectedItem(null);
                   }}
-                  className="bg-[#b8860b] text-[#1a1612] font-cinzel font-bold py-3 rounded uppercase tracking-widest hover:bg-[#d4af37] transition-all"
+                  className={`font-cinzel font-bold py-3 rounded uppercase tracking-widest transition-all ${
+                     player.level >= selectedItem.level 
+                       ? 'bg-[#b8860b] text-[#1a1612] hover:bg-[#d4af37]' 
+                       : 'bg-black/40 text-gray-500 border border-gray-700 cursor-not-allowed'
+                  }`}
                 >
                   ОДЕТЬ
                 </button>
@@ -767,11 +899,15 @@ const getRarityColor = (rarity: string) => {
     case 'epic': return '#c084fc';
     case 'legendary': return '#fbbf24';
     case 'mythic': return '#ef4444';
+    case 'ultra': return '#2dd4bf'; // Base cyan color for UI text elements
     default: return '#e5d3b3';
   }
 };
 
-const StatRowWithActions = ({ label, subtitle, value, icon, onPlus, canPlus }: { label: string, subtitle: string, value: number, icon: React.ReactNode, onPlus: () => void, canPlus: boolean }) => (
+const StatRowWithActions = ({ label, subtitle, value, icon, onPlus, canPlus }: { label: string, subtitle: string, value: number, icon: React.ReactNode, onPlus: () => void, canPlus: boolean }) => {
+  const safeValue = Number.isNaN(value) || value === undefined || value === null ? 0 : value;
+  const displayValue = formatNumber(safeValue);
+  return (
   <div className="flex items-center justify-between bg-[#1a1612] px-3 sm:px-4 py-2 sm:py-3 rounded-xl border border-[#4a3b2c] group hover:border-[#d4af37]/40 transition-all">
     <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
       <div className="shrink-0">{icon}</div>
@@ -781,7 +917,7 @@ const StatRowWithActions = ({ label, subtitle, value, icon, onPlus, canPlus }: {
       </div>
     </div>
     <div className="flex items-center gap-2 sm:gap-4 shrink-0 pl-2">
-      <span className="text-sm sm:text-xl font-bold font-spectral text-[#d4af37]">{value}</span>
+      <span className="text-sm sm:text-xl font-bold font-spectral text-[#d4af37]">{displayValue}</span>
       <button 
         onClick={(e) => { e.stopPropagation(); onPlus(); }} 
         disabled={!canPlus}
@@ -791,36 +927,69 @@ const StatRowWithActions = ({ label, subtitle, value, icon, onPlus, canPlus }: {
       </button>
     </div>
   </div>
-);
+)};
 
-const StatRow = ({ label, value, icon }: { label: string, value: any, icon: React.ReactNode }) => (
+const StatRow = ({ label, value, icon }: { label: string, value: any, icon: React.ReactNode }) => {
+  let displayValue;
+  if (typeof value === 'string') {
+    let strVal = value.includes('NaN') ? value.replace('NaN', '0') : value;
+    const match = strVal.match(/^(\+?-?\d+(?:\.\d+)?)(.*)$/);
+    if(match) {
+        displayValue = (match[1].startsWith('+') ? '+' : '') + formatNumber(Math.abs(Number(match[1]))) + match[2];
+        if (displayValue.startsWith('+0k') || displayValue.startsWith('+0m')) displayValue = displayValue.replace('+0', '0');
+    } else {
+        displayValue = strVal;
+    }
+  } else {
+    displayValue = formatNumber(Number.isNaN(value) || value === undefined || value === null ? 0 : value);
+  }
+  return (
   <div className="flex items-center justify-between bg-[#0f0d0b] px-4 sm:px-6 py-3 sm:py-4 rounded-lg border border-[#4a3b2c]/60 group hover:border-[#d4af37]/20 transition-all">
     <div className="flex items-center gap-3 sm:gap-5">
       {icon}
       <span className="text-xs sm:text-sm font-bold font-cinzel text-[#e5d3b3]/70 uppercase tracking-widest">{label}</span>
     </div>
-    <span className="text-base sm:text-2xl font-bold font-spectral text-[#e5d3b3]">{value}</span>
+    <span className="text-base sm:text-2xl font-bold font-spectral text-[#e5d3b3]">{displayValue}</span>
   </div>
-);
+)};
 
 const ItemIcon = ({ icon, name, rarity = 'common' }: { icon: string, name: string, rarity?: string }) => {
   const color = getRarityColor(rarity);
+  const isUltra = rarity === 'ultra';
+  const isMythic = rarity === 'mythic' || isUltra;
 
   if (icon === 'armor') {
-    const isMythic = rarity === 'mythic';
     return (
       <div className="relative w-12 h-12 flex items-center justify-center">
-        <Shield size={32} color={color} fill={color + '33'} />
+        <Shield size={32} color={color} fill={isUltra ? 'url(#ultra-grad)' : color + '33'} />
+        {isUltra && (
+           <svg width="0" height="0">
+             <linearGradient id="ultra-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+               <stop offset="0%" stopColor="#8b5cf6" />
+               <stop offset="100%" stopColor="#2dd4bf" />
+             </linearGradient>
+           </svg>
+        )}
         {rarity === 'legendary' && <div className="absolute inset-0 border-2 border-yellow-400 rounded-lg animate-pulse" />}
         {isMythic && (
            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="absolute inset-0 border-2 border-red-600 rounded-lg animate-pulse shadow-[0_0_15px_#ff0000]" />
-              {/* Mythic Wings */}
-              <div className="absolute -left-5 top-0 w-6 h-10 border-l-2 border-t-2 border-red-600/40 rounded-tl-[80%] rotate-[10deg] animate-pulse" />
-              <div className="absolute -right-5 top-0 w-6 h-10 border-r-2 border-t-2 border-red-600/40 rounded-tr-[80%] -rotate-[10deg] animate-pulse" />
-              <div className="w-16 h-8 bg-red-900/20 absolute -z-10 rounded-[50%] blur-md" />
+              <div className={`absolute inset-0 border-2 rounded-lg animate-pulse ${isUltra ? 'border-[#2dd4bf] shadow-[0_0_15px_#2dd4bf]' : 'border-red-600 shadow-[0_0_15px_#ff0000]'}`} />
+              {/* Mythic/Ultra Wings */}
+              <div className={`absolute -left-5 top-0 w-6 h-10 border-l-2 border-t-2 rounded-tl-[80%] rotate-[10deg] animate-pulse ${isUltra ? 'border-[#8b5cf6]/60 shadow-[0_0_10px_#8b5cf6]' : 'border-red-600/40'}`} />
+              <div className={`absolute -right-5 top-0 w-6 h-10 border-r-2 border-t-2 rounded-tr-[80%] -rotate-[10deg] animate-pulse ${isUltra ? 'border-[#2dd4bf]/60 shadow-[0_0_10px_#2dd4bf]' : 'border-red-600/40'}`} />
+              <div className={`w-16 h-8 absolute -z-10 rounded-[50%] blur-md ${isUltra ? 'bg-gradient-to-r from-violet-600/40 to-teal-400/40' : 'bg-red-900/20'}`} />
            </div>
         )}
+      </div>
+    );
+  }
+
+  if (icon === 'aura') {
+    return (
+      <div className="relative w-12 h-12 flex items-center justify-center">
+        <div className={`absolute border-2 rounded-full animate-spin`} style={{ width: '100%', height: '100%', borderColor: color, animationDuration: '3s' }} />
+        <div className={`absolute border-2 border-dashed rounded-full animate-[spin_4s_linear_reverse_infinite]`} style={{ width: '70%', height: '70%', borderColor: color }} />
+        <div className={`w-3 h-3 rounded-full animate-pulse shadow-[0_0_10px_${color}]`} style={{ backgroundColor: color }} />
       </div>
     );
   }
@@ -828,7 +997,7 @@ const ItemIcon = ({ icon, name, rarity = 'common' }: { icon: string, name: strin
   if (icon === 'accessory') {
     return (
       <div className="relative w-12 h-12 flex items-center justify-center">
-        <Award size={32} color={color} className={rarity === 'mythic' ? 'animate-pulse shadow-[0_0_10px_#ff0000]' : ''} />
+        <Award size={32} color={color} className={isMythic ? `animate-pulse shadow-[0_0_10px_${color}]` : ''} />
       </div>
     );
   }
@@ -840,24 +1009,23 @@ const ItemIcon = ({ icon, name, rarity = 'common' }: { icon: string, name: strin
           className="w-10 h-10 border-4 rounded-full border-r-transparent rotate-45 transition-all duration-500" 
           style={{ 
             borderColor: color,
-            boxShadow: (rarity === 'legendary' || rarity === 'epic' || rarity === 'mythic') ? `0 0 15px ${color}88` : 'none',
+            boxShadow: (rarity === 'legendary' || rarity === 'epic' || isMythic) ? `0 0 15px ${color}88` : 'none',
           }} 
         />
         <div className="absolute w-10 h-0.5 bg-white/20" />
-        {(rarity === 'legendary' || rarity === 'mythic') && <div className="absolute inset-0 border border-current rounded-full animate-ping opacity-20" style={{ color }} />}
+        {(rarity === 'legendary' || isMythic) && <div className="absolute inset-0 border border-current rounded-full animate-ping opacity-20" style={{ color }} />}
       </div>
     );
   }
   
   if (icon === 'staff') {
-    const isMythic = rarity === 'mythic';
     return (
       <div className="relative w-12 h-12 flex items-center justify-center -rotate-45">
         <div 
           className="w-1 h-12 rounded-full absolute" 
           style={{ 
             backgroundColor: isMythic ? '#000' : '#78350f',
-            boxShadow: (rarity === 'legendary' || isMythic) ? `0 0 10px ${isMythic ? '#ff0000' : '#78350f'}` : 'none'
+            boxShadow: (rarity === 'legendary' || isMythic) ? `0 0 10px ${isMythic ? color : '#78350f'}` : 'none'
           }} 
         />
         <div 
@@ -872,15 +1040,14 @@ const ItemIcon = ({ icon, name, rarity = 'common' }: { icon: string, name: strin
   }
   
   // Sword/Melee designs
-  const isMythic = rarity === 'mythic';
   return (
     <div className="relative w-14 h-14 flex items-center justify-center rotate-45">
       {/* Blade with complexity */}
       <div 
         className="w-2 h-12 rounded-t-full relative shadow-xl transition-all duration-500 overflow-hidden" 
         style={{ 
-          background: isMythic ? 'linear-gradient(to bottom, #f00 0%, #000 100%)' : `linear-gradient(to bottom, #fff 0%, ${color} 50%, #475569 100%)`,
-          boxShadow: (rarity === 'legendary' || rarity === 'epic' || isMythic) ? `0 0 20px ${color}` : 'none'
+          background: isUltra ? 'linear-gradient(to bottom, #8b5cf6 0%, #2dd4bf 100%)' : isMythic ? 'linear-gradient(to bottom, #f00 0%, #000 100%)' : `linear-gradient(to bottom, #fff 0%, ${color} 50%, #475569 100%)`,
+          boxShadow: isUltra ? '0 0 20px #8b5cf6, 0 0 20px #2dd4bf' : (rarity === 'legendary' || rarity === 'epic' || isMythic) ? `0 0 20px ${color}` : 'none'
         }} 
       >
       </div>
@@ -890,28 +1057,30 @@ const ItemIcon = ({ icon, name, rarity = 'common' }: { icon: string, name: strin
         className="absolute bottom-4 h-1.5 rounded-full transition-all"
         style={{ 
           width: isMythic ? '3rem' : rarity === 'legendary' ? '2.5rem' : rarity === 'epic' ? '2rem' : '1.5rem',
-          backgroundColor: isMythic ? '#ff0000' : rarity === 'legendary' ? '#b45309' : '#1e293b'
+          background: isUltra ? 'linear-gradient(to right, #8b5cf6, #2dd4bf)' : isMythic ? '#ff0000' : rarity === 'legendary' ? '#b45309' : '#1e293b'
         }}
       />
       
       {/* Hilt */}
-      <div className={`absolute bottom-1 w-2 h-4 border-t rounded-b-sm ${isMythic ? 'bg-black border-red-900' : 'bg-slate-800 border-slate-700/50'}`} />
+      <div className={`absolute bottom-1 w-2 h-4 border-t rounded-b-sm ${isMythic ? 'bg-black border-current' : 'bg-slate-800 border-slate-700/50'}`} style={{ borderColor: color }} />
     </div>
   );
 };
 
 const EquipmentSlot = ({ label, item, onClick }: { label: string, item: Item | null, onClick: (it: Item) => void }) => (
-  <div className="flex flex-col gap-1 sm:gap-2">
+  <div className="flex flex-col gap-1 sm:gap-2 relative pt-2 group">
+    <div className="absolute top-0 right-0 left-0 flex justify-center -mt-2 opacity-50 z-10 pointer-events-none">
+       <span className="text-[7px] font-cinzel font-bold text-[#d4af37] tracking-[0.2em] bg-[#0a0806] px-1">{label}</span>
+    </div>
     <div 
       onClick={() => item && onClick(item)}
       className={`aspect-square rounded border transition-all cursor-pointer ${
-        item ? 'bg-[#261e16] border-[#d4af37] shadow-[inset_0_0_10px_rgba(0,0,0,0.5)]' : 'bg-[#1a1612]/40 border-[#4a3b2c] text-[#e5d3b3]/10'
+        item ? 'bg-[#261e16] border-[#d4af37] shadow-[inset_0_0_10px_rgba(0,0,0,0.5)] hover:border-[#ffcf40]' : 'bg-[#1a1612]/40 border-[#4a3b2c] text-[#e5d3b3]/10'
       }`}
     >
       {item ? (
-        <div className="flex items-center justify-center flex-col p-1 sm:p-2 h-full w-full">
+        <div className="flex items-center justify-center flex-col h-full w-full">
           <ItemIcon icon={item.icon} name={item.name} rarity={item.rarity} />
-          <span className="text-[7px] sm:text-[8px] text-[#e5d3b3] font-cinzel font-bold uppercase text-center mt-1 truncate w-full">{item.name}</span>
         </div>
       ) : (
         <div className="flex items-center justify-center h-full">
@@ -929,14 +1098,13 @@ const InventoryItem = ({ item, onClick }: { item: Item, onClick: () => void }) =
     <motion.div 
       whileTap={{ scale: 0.95 }}
       onClick={onClick}
-      className="aspect-square bg-[#1a1612]/80 border border-[#4a3b2c] flex flex-col items-center justify-center p-1 sm:p-2 relative overflow-hidden cursor-pointer hover:bg-[#261e16] hover:border-[#b8860b] transition-all group shadow-[inset_0_0_10px_rgba(0,0,0,0.3)]"
+      className="aspect-square bg-[#1a1612]/80 border border-[#4a3b2c] flex items-center justify-center relative overflow-hidden cursor-pointer hover:bg-[#261e16] hover:border-[#b8860b] transition-all group rounded shadow-[inset_0_0_10px_rgba(0,0,0,0.3)]"
     >
-      <div className="absolute top-0 right-0 w-4 h-4 sm:w-6 sm:h-6 rotate-45 translate-x-2 -translate-y-2 sm:translate-x-3 sm:-translate-y-3 opacity-50 z-10" 
+      <div className="absolute top-0 right-0 w-3 h-3 rotate-45 translate-x-1.5 -translate-y-1.5 opacity-80 z-10" 
            style={{ backgroundColor: rarityColor }} />
-      <ItemIcon icon={item.icon} name={item.name} rarity={item.rarity} />
-      <span className="text-[7px] sm:text-[8px] text-[#e5d3b3]/80 font-cinzel font-bold uppercase text-center leading-none truncate w-full px-0.5 sm:px-1 absolute bottom-1 bg-black/60 py-0.5 z-10">
-        {item.name}
-      </span>
+      <div className="scale-75 sm:scale-90">
+        <ItemIcon icon={item.icon} name={item.name} rarity={item.rarity} />
+      </div>
     </motion.div>
   );
 };

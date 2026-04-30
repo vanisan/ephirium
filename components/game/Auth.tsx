@@ -62,6 +62,10 @@ export const Auth: React.FC<{ isLanding?: boolean }> = ({ isLanding }) => {
         setError('Неверный логин или пароль.');
       } else if (err.code === 'auth/email-already-in-use') {
         setError('Этот логин уже занят.');
+      } else if (err.code === 'auth/operation-not-allowed') {
+        setError('Регистрация по почте и паролю не включена в Firebase.');
+      } else if (err.code === 'auth/network-request-failed') {
+        setError('Сетевая ошибка. Скорее всего, браузер блокирует запросы в iframe. Откройте приложение в новой вкладке (кнопка ↗ вверху) или отключите блокировщик.');
       } else {
         setError(err.message);
       }

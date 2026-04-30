@@ -1,7 +1,9 @@
 'use client'
 
 import React, { useRef, useEffect } from 'react';
-import { useGameStore, Enemy } from '@/lib/store';
+import { useGameStore, Enemy, OnlinePlayer } from '@/lib/store';
+import { db } from '@/lib/firebase';
+import { doc, setDoc, onSnapshot, collection, query, where } from 'firebase/firestore';
 
 interface GameEngineProps {
   velocity: React.RefObject<{ x: number, y: number }>;
@@ -55,6 +57,8 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
   const lastEnemyAttackTime = useRef<number>(0);
   const lastRespawnTime = useRef<number>(0);
   const lastBuffUpdateTime = useRef<number>(0);
+  const lastRegenTime = useRef<number>(0);
+  const lastAuraTickTime = useRef<number>(0);
   const floatingTexts = useRef<FloatingText[]>([]);
   const particles = useRef<Particle[]>([]);
   const projectiles = useRef<Projectile[]>([]);
@@ -120,6 +124,13 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
                 tctx.fillStyle = '#333344';
                 tctx.beginPath(); tctx.arc(x, y, 2 + Math.random()*3, 0, Math.PI*2); tctx.fill();
             }
+        } else if (loc.groundTheme === 'dungeon_corridor') {
+            tctx.fillStyle = '#100a16';
+            tctx.fillRect(x, y, s, s);
+            if (i % 100 === 0) { // Cracks/Tiles
+                tctx.strokeStyle = '#221133'; tctx.lineWidth = 1;
+                tctx.strokeRect(Math.floor(x/32)*32, Math.floor(y/32)*32, 32, 32);
+            }
         } else { // Citadel
             tctx.fillStyle = '#0a0505';
             tctx.fillRect(x, y, s, s);
@@ -135,12 +146,102 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     groundPattern.current = ctx.createPattern(tempCanvas, 'repeat');
   }, [useGameStore.getState().currentLocationId]);
 
+  useEffect(() => {
+    // Multiplayer Listeners
+    const state = useGameStore.getState();
+    const user = state.user;
+    if (!user) return;
+
+    let unsubList: (() => void)[] = [];
+
+    // Listen for players in current location
+    const q = query(collection(db, 'worldPlayers'), where('locationId', '==', state.currentLocationId));
+    let skipFirst = true; // wait for next tick? Actually just listen
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const players: OnlinePlayer[] = [];
+      const now = Date.now();
+      snapshot.forEach(d => {
+        const data = d.data();
+        if (d.id !== user.uid && now - data.updatedAt < 5000) { // Only show active players
+          players.push({
+            id: d.id,
+            x: data.x,
+            y: data.y,
+            hp: data.hp,
+            maxHp: data.maxHp,
+            level: data.level,
+            nickname: data.nickname,
+          });
+        }
+      });
+      useGameStore.setState({ onlinePlayers: players });
+    }, (error) => {
+        console.error('Multiplayer sync error', error);
+    });
+
+    // Write player position every 1 seconds
+    const interval = setInterval(() => {
+      const currentState = useGameStore.getState();
+      if (!currentState.user) return;
+      try {
+        setDoc(doc(db, 'worldPlayers', currentState.user.uid), {
+          locationId: currentState.currentLocationId,
+          x: currentState.player.x,
+          y: currentState.player.y,
+          hp: currentState.player.hp,
+          maxHp: currentState.player.maxHp,
+          level: currentState.player.level,
+          nickname: currentState.user.email.split('@')[0],
+          updatedAt: Date.now()
+        }, { merge: true });
+      } catch (e) {
+          console.error(e);
+      }
+    }, 1000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+    };
+  }, [useGameStore.getState().currentLocationId, useGameStore.getState().user?.uid]);
+
   const update = (time: number) => {
     const deltaTime = time - lastTimeRef.current;
     lastTimeRef.current = time;
 
     const state = useGameStore.getState();
-    const { player, enemies, isAutoBattle, updatePlayerPos, damageEnemy, spawnEnemy, damagePlayer, gainExp } = state;
+    const { player, enemies, isAutoBattle, updatePlayerPos, damageEnemy, spawnEnemy, damagePlayer, gainExp, healPlayer } = state;
+
+    // HP Regen
+    if (player.stats.hpRegen && player.stats.hpRegen > 0) {
+       if (time - lastRegenTime.current > 1000) {
+          healPlayer(player.stats.hpRegen);
+          lastRegenTime.current = time;
+       }
+    }
+
+    // Aura Damage
+    const aura = state.equipment.aura;
+    if (aura && time - lastAuraTickTime.current > 1000) {
+       const auraRadius = aura.rarity === 'ultra' ? 200 : aura.rarity === 'mythic' ? 150 : aura.rarity === 'legendary' ? 120 : aura.rarity === 'epic' ? 100 : 80;
+       const auraDamage = aura.stats?.damage || player.stats.damage * 0.1;
+       enemies.forEach(e => {
+          const d = Math.hypot(e.x - player.x, e.y - player.y);
+          if (d <= auraRadius) {
+             damageEnemy(e.id, Math.floor(auraDamage));
+             floatingTexts.current.push({
+               id: Math.random().toString(),
+               x: e.x,
+               y: e.y - 15,
+               text: `-${Math.floor(auraDamage)}`,
+               color: '#eab308',
+               life: 1.0
+             });
+          }
+       });
+       lastAuraTickTime.current = time;
+    }
 
     // 1. Move Player (Manual)
     const currentVelocity = velocity.current || { x: 0, y: 0 };
@@ -154,7 +255,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       }));
     }
 
-    if (isAutoBattle) {
+    if (isAutoBattle || state.currentTargetId) {
       const weapon = state.equipment.weapon;
       const wName = (weapon?.name || '').toLowerCase();
       const wIcon = weapon?.icon || '';
@@ -162,14 +263,29 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       const isStaff = wIcon === 'staff' || wName.includes('посох');
       const dynamicAttackRange = isBow ? 350 : isStaff ? 225 : ATTACK_RANGE;
 
-      const nearestEnemy = enemies.reduce((prev: Enemy | null, current: Enemy) => {
-        const distCurrent = Math.hypot(current.x - player.x, current.y - player.y);
-        const distPrev = prev ? Math.hypot(prev.x - player.x, prev.y - player.y) : Infinity;
-        return distCurrent < distPrev ? current : prev;
-      }, null);
+      // Find target: either currentTargetId or nearest enemy (if auto battle)
+      let target: { id: string, x: number, y: number, isPlayer?: boolean } | null = null;
+      
+      if (state.currentTargetId) {
+        if (state.currentTargetId.startsWith('player_')) {
+          const pid = state.currentTargetId.replace('player_', '');
+          const p = state.onlinePlayers?.find(p => p.id === pid);
+          if (p) target = { ...p, isPlayer: true };
+        } else {
+          const e = state.enemies.find(e => e.id === state.currentTargetId);
+          if (e) target = e;
+        }
+      } else if (isAutoBattle) {
+        target = enemies.reduce((prev: Enemy | null, current: Enemy) => {
+          const distCurrent = Math.hypot(current.x - player.x, current.y - player.y);
+          const distPrev = prev ? Math.hypot(prev.x - player.x, prev.y - player.y) : Infinity;
+          return distCurrent < distPrev ? current : prev;
+        }, null);
+        if (target) state.setCurrentTargetId(target.id);
+      }
 
-      if (nearestEnemy) {
-        const dist = Math.hypot(nearestEnemy.x - player.x, nearestEnemy.y - player.y);
+      if (target) {
+        const dist = Math.hypot(target.x - player.x, target.y - player.y);
         
         if (dist < dynamicAttackRange) {
           // Attack
@@ -177,15 +293,12 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
             let finalDmg = player.stats.damage;
             let isCrit = false;
 
-            if (isBow) {
-              // Bow: 30% double damage
-              if (Math.random() < 0.3) {
-                finalDmg *= 2;
-                isCrit = true;
-              }
+            if (Math.random() * 100 < (player.stats.critRate || 5)) {
+              finalDmg = Math.floor(finalDmg * ((player.stats.critDamage || 150) / 100));
+              isCrit = true;
             }
             
-            const angle = Math.atan2(nearestEnemy.y - player.y, nearestEnemy.x - player.x);
+            const angle = Math.atan2(target.y - player.y, target.x - player.x);
 
             if (isBow || isStaff) {
               // Ranged attack - spawn projectile
@@ -195,9 +308,9 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
                 y: player.y,
                 startX: player.x,
                 startY: player.y,
-                targetX: nearestEnemy.x,
-                targetY: nearestEnemy.y,
-                targetId: nearestEnemy.id,
+                targetX: target.x,
+                targetY: target.y,
+                targetId: target.id,
                 progress: 0,
                 speed: isBow ? 0.08 : 0.05,
                 type: isBow ? 'arrow' : 'magic',
@@ -207,41 +320,46 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
                 isStaff
               });
               
-              // Small recoil or cast animation
               attackEffect.current = { angle, progress: 0, type: isBow ? 'ranged' : 'magic' };
             } else {
-              // Melee attack - immediate
-              damageEnemy(nearestEnemy.id, finalDmg);
-
-              // Melee: AOE 25% damage to nearby
-              const AOE_RADIUS = 100;
-              enemies.forEach(e => {
-                if (e.id !== nearestEnemy.id) {
-                  const d = Math.hypot(e.x - nearestEnemy.x, e.y - nearestEnemy.y);
-                  if (d < AOE_RADIUS) {
-                    damageEnemy(e.id, Math.floor(finalDmg * 0.25));
-                  }
-                }
-              });
+              // Melee attack logic -> handled in the condition
+              let realTargetId = target.id;
+              if (target.isPlayer) {
+                  const targetRef = doc(db, 'worldPlayers', realTargetId);
+                  // Read and update their HP
+                  import('firebase/firestore').then(({ getDoc, updateDoc }) => {
+                      getDoc(targetRef).then(snap => {
+                         if (snap.exists()) {
+                             const thp = snap.data().hp;
+                             updateDoc(targetRef, { hp: Math.max(0, thp - finalDmg) });
+                         }
+                      });
+                  });
+              } else {
+                  damageEnemy(target.id, finalDmg);
+              }
+              
+              if (player.stats.lifesteal && player.stats.lifesteal > 0) {
+                const heal = Math.floor(finalDmg * (player.stats.lifesteal / 100));
+                if (heal > 0) healPlayer(heal);
+              }
               
               attackEffect.current = { angle, progress: 0, type: 'melee' };
 
-              // Add floating text
               floatingTexts.current.push({
                 id: Math.random().toString(),
-                x: nearestEnemy.x,
-                y: nearestEnemy.y - 20,
+                x: target.x,
+                y: target.y - 20,
                 text: isCrit ? `КРИТ -${finalDmg}` : `-${finalDmg}`,
                 color: isCrit ? '#fbbf24' : '#facc15',
                 life: 1.0
               });
               
-              // Hit particles
               for (let i = 0; i < 5; i++) {
                 particles.current.push({
                   id: Math.random().toString(),
-                  x: nearestEnemy.x,
-                  y: nearestEnemy.y,
+                  x: target.x,
+                  y: target.y,
                   vx: (Math.random() - 0.5) * 10,
                   vy: (Math.random() - 0.5) * 10,
                   color: '#ffffff',
@@ -254,13 +372,47 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
 
             lastAttackTime.current = time;
           }
-        } else if (dist < ENEMY_DETECTION_RANGE && (velocity.current?.x || 0) === 0 && (velocity.current?.y || 0) === 0) {
-          // Auto-move towards enemy if not controlled manually
-          const angle = Math.atan2(nearestEnemy.y - player.y, nearestEnemy.x - player.x);
+        } else if (isAutoBattle && (velocity.current?.x || 0) === 0 && (velocity.current?.y || 0) === 0) {
+          // Auto-move towards target
+          const angle = Math.atan2(target.y - player.y, target.x - player.x);
           newX += Math.cos(angle) * (PLAYER_SPEED * 0.7);
           newY += Math.sin(angle) * (PLAYER_SPEED * 0.7);
         }
+      } else {
+         if (state.currentTargetId) {
+             state.setCurrentTargetId(null); // Clear invalid target
+         }
+         const loc = state.locations.find(l => l.id === state.currentLocationId);
+         if (loc?.groundTheme === 'dungeon_corridor' && isAutoBattle && (velocity.current?.x || 0) === 0 && (velocity.current?.y || 0) === 0) {
+            if (!state.dungeonState.bossDefeated) {
+               newX += PLAYER_SPEED * 0.7; // run forward
+            } else if (!state.dungeonState.chestOpened) {
+               // move to chest
+               const distToChest = Math.hypot(7500 - player.x, 500 - player.y);
+               if (distToChest > 50) {
+                 const angle = Math.atan2(500 - player.y, 7500 - player.x);
+                 newX += Math.cos(angle) * (PLAYER_SPEED * 0.7);
+                 newY += Math.sin(angle) * (PLAYER_SPEED * 0.7);
+               } else {
+                 state.openChest();
+               }
+            }
+         }
       }
+    }
+
+    const currentLoc = state.locations.find(l => l.id === state.currentLocationId);
+    if (currentLoc?.groundTheme === 'dungeon_corridor') {
+        newY = Math.max(200, Math.min(newY, 800)); // boundaries
+        newX = Math.max(0, Math.min(newX, 8500));
+        
+        // Manual player reaching chest check
+        if (state.dungeonState.bossDefeated && !state.dungeonState.chestOpened) {
+           const distToChest = Math.hypot(7500 - newX, 500 - newY);
+           if (distToChest < 100) {
+              state.openChest();
+           }
+        }
     }
 
     updatePlayerPos(newX, newY);
@@ -281,20 +433,33 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       const dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
       if (dist < 40) {
         if (time - lastEnemyAttackTime.current > 1500) {
-            const baseDmg = (10 + enemy.level * 4) - (player.stats.defense / 5);
-            const dr = player.stats.damageReduction || 0;
-            const reducedDmg = Math.max(1, baseDmg * (1 - (dr / 100)));
-            damagePlayer(Math.round(reducedDmg));
-            lastEnemyAttackTime.current = time;
-            
-            floatingTexts.current.push({
-              id: Math.random().toString(),
-              x: player.x,
-              y: player.y - 20,
-              text: `-${Math.round(reducedDmg)}`,
-              color: '#ef4444',
-              life: 1.0
-            });
+            if (player.stats.dodge && Math.random() * 100 < player.stats.dodge) {
+                // Dodged!
+                lastEnemyAttackTime.current = time;
+                floatingTexts.current.push({
+                  id: Math.random().toString(),
+                  x: player.x,
+                  y: player.y - 20,
+                  text: 'УКЛОНЕНИЕ',
+                  color: '#93c5fd',
+                  life: 1.0
+                });
+            } else {
+                const baseDmg = (10 + enemy.level * 4) - (player.stats.defense / 5);
+                const dr = player.stats.damageReduction || 0;
+                const reducedDmg = Math.max(1, baseDmg * (1 - (dr / 100)));
+                damagePlayer(Math.round(reducedDmg));
+                lastEnemyAttackTime.current = time;
+                
+                floatingTexts.current.push({
+                  id: Math.random().toString(),
+                  x: player.x,
+                  y: player.y - 20,
+                  text: `-${Math.round(reducedDmg)}`,
+                  color: '#ef4444',
+                  life: 1.0
+                });
+            }
           }
         } else if (dist < 310) {
           // Simple AI: Move towards player
@@ -339,11 +504,27 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       
       removedProjectiles.forEach(p => {
         if (p.targetId) {
-          damageEnemy(p.targetId, p.damage);
+          if (p.targetId.startsWith('player_')) {
+              const pid = p.targetId.replace('player_', '');
+              const targetRef = doc(db, 'worldPlayers', pid);
+              import('firebase/firestore').then(({ getDoc, updateDoc }) => {
+                  getDoc(targetRef).then(snap => {
+                     if (snap.exists()) {
+                         const thp = snap.data().hp;
+                         updateDoc(targetRef, { hp: Math.max(0, thp - p.damage) });
+                     }
+                  });
+              });
+          } else {
+              damageEnemy(p.targetId, p.damage);
+          }
           
-          if (p.isStaff) {
+          if (player.stats.lifesteal && player.stats.lifesteal > 0) {
+             const heal = Math.floor(p.damage * (player.stats.lifesteal / 100));
+             if (heal > 0) healPlayer(heal);
+          } else if (p.isStaff) {
              const heal = Math.floor(p.damage * 0.15);
-             if (heal > 0) state.healPlayer(heal);
+             if (heal > 0) healPlayer(heal);
           }
           
           floatingTexts.current.push({
@@ -395,31 +576,66 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
 
     if (timeSinceLastSpawn > 2000) {
       const location = state.locations.find(l => l.id === state.currentLocationId) || state.locations[0];
-      if (nearbyEnemies.length < 60) {
-          const spawnCount = nearbyEnemies.length < 20 ? 15 : 10; 
-          for (let i = 0; i < spawnCount; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 300 + Math.random() * 400; // Even closer spawn range
-            const enemyLevel = Math.max(player.level, location.minLevel);
-            spawnEnemy({
-              id: Math.random().toString(),
-              x: player.x + Math.cos(angle) * dist,
-              y: player.y + Math.sin(angle) * dist,
-              hp: (location.enemyBaseHp) + enemyLevel * 15,
-              maxHp: (location.enemyBaseHp) + enemyLevel * 15,
-              level: enemyLevel,
-              type: Math.random() > 0.7 ? 'Титан' : 'Демон'
-            });
-          }
+      const isDungeon = location.isDungeon;
+      
+      if (isDungeon) {
+        if (!state.dungeonState.bossDefeated) {
+           const bossExists = state.enemies.some(e => e.type === 'boss');
+           if (!bossExists) {
+              spawnEnemy({
+                id: 'dungeon_boss_' + Math.random().toString(),
+                x: 7000,
+                y: 500,
+                hp: location.enemyBaseHp * 50,
+                maxHp: location.enemyBaseHp * 50,
+                level: location.minLevel + 10,
+                type: 'boss'
+              });
+           }
+           if (nearbyEnemies.length < 15) {
+              for (let i = 0; i < 5; i++) {
+                const spawnX = Math.max(player.x + 300, Math.min(8000, player.x + 300 + Math.random() * 800));
+                const spawnY = Math.max(200, Math.min(800, player.y + (Math.random() - 0.5) * 400));
+                
+                spawnEnemy({
+                  id: Math.random().toString(),
+                  x: spawnX,
+                  y: spawnY,
+                  hp: location.enemyBaseHp * 2,
+                  maxHp: location.enemyBaseHp * 2,
+                  level: Math.max(player.level, location.minLevel),
+                  type: 'Демон'
+                });
+              }
+           }
         }
-        lastRespawnTime.current = time;
+      } else {
+        if (nearbyEnemies.length < 15) {
+            const spawnCount = nearbyEnemies.length < 5 ? 5 : 2; 
+            for (let i = 0; i < spawnCount; i++) {
+              const angle = Math.random() * Math.PI * 2;
+              const dist = 300 + Math.random() * 400; // Even closer spawn range
+              const enemyLevel = Math.max(player.level, location.minLevel);
+              spawnEnemy({
+                id: Math.random().toString(),
+                x: player.x + Math.cos(angle) * dist,
+                y: player.y + Math.sin(angle) * dist,
+                hp: (location.enemyBaseHp) + enemyLevel * 15,
+                maxHp: (location.enemyBaseHp) + enemyLevel * 15,
+                level: enemyLevel,
+                type: Math.random() > 0.7 ? 'Титан' : 'Демон'
+              });
+            }
+          }
+      }
+      lastRespawnTime.current = time;
     }
 
-    draw(useGameStore.getState());
+    draw(useGameStore.getState(), time);
     requestRef.current = requestAnimationFrame(update);
   };
 
-  const draw = (state: any) => {
+  const draw = (state: any, time: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -461,26 +677,134 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       ctx.beginPath(); ctx.moveTo(camX, y); ctx.lineTo(camX + canvas.width, y); ctx.stroke();
     }
 
+    // Environment items
+    if (state.locations.find((l:any) => l.id === currentLocationId)?.groundTheme === 'dungeon_corridor') {
+       ctx.fillStyle = '#05020a';
+       // top wall
+       ctx.fillRect(0, -1000, 9000, 1200); // 1200 high chunk above y=200
+       // bottom wall
+       ctx.fillRect(0, 800, 9000, 1200); // chunk below y=800
+
+       // draw chest if present
+       if (state.dungeonState.bossDefeated && !state.dungeonState.chestOpened) {
+          ctx.font = '30px Arial';
+          ctx.fillText('🎁', 7500 - 15, 500 + 10);
+       }
+    }
+
     // Enemies
     enemies.forEach((enemy: any) => {
-      ctx.fillStyle = '#b83333';
+      const isBoss = enemy.type === 'boss';
+      const radius = isBoss ? 45 : 15;
+      
+      // Target highlight
+      if (state.currentTargetId === enemy.id) {
+          ctx.beginPath();
+          ctx.arc(enemy.x, enemy.y, radius + 10, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
+          ctx.fill();
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+      }
+
+      ctx.fillStyle = isBoss ? '#991b1b' : '#b83333';
       ctx.beginPath();
-      ctx.arc(enemy.x, enemy.y, 15, 0, Math.PI * 2);
+      ctx.arc(enemy.x, enemy.y, radius, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = '#4a1111';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = isBoss ? '#f59e0b' : '#4a1111';
+      ctx.lineWidth = isBoss ? 4 : 2;
       ctx.stroke();
 
       // HP Bar
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(enemy.x - 15, enemy.y - 25, 30, 3);
+      ctx.fillRect(enemy.x - radius, enemy.y - radius - 10, radius * 2, 5);
       ctx.fillStyle = '#ef4444';
-      ctx.fillRect(enemy.x - 15, enemy.y - 25, (enemy.hp / enemy.maxHp) * 30, 3);
+      ctx.fillRect(enemy.x - radius, enemy.y - radius - 10, (enemy.hp / enemy.maxHp) * (radius * 2), 5);
+    });
+
+    // Online Players
+    state.onlinePlayers?.forEach((p: any) => {
+      const radius = 20;
+
+      // Target highlight
+      if (state.currentTargetId === 'player_' + p.id) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, radius + 10, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
+          ctx.fill();
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+      }
+
+      // Draw online player body
+      ctx.save();
+      ctx.translate(p.x, p.y);
+
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.arc(2, 2, radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Body 
+      ctx.fillStyle = '#6366f1'; // Different color for other players
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#818cf8';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.restore();
+
+      // HP Bar
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(p.x - radius, p.y - radius - 15, radius * 2, 5);
+      ctx.fillStyle = '#3b82f6';
+      ctx.fillRect(p.x - radius, p.y - radius - 15, (p.hp / p.maxHp) * (radius * 2), 5);
+
+      // Name
+      ctx.font = '12px Cinzel';
+      ctx.fillStyle = '#e2e8f0';
+      ctx.textAlign = 'center';
+      ctx.fillText(`Lv.${p.level} ${p.nickname}`, p.x, p.y - radius - 20);
     });
 
     // Player
     ctx.save();
     ctx.translate(player.x, player.y);
+
+    const aura = state.equipment.aura;
+    if (aura) {
+       const auraRadius = aura.rarity === 'ultra' ? 200 : aura.rarity === 'mythic' ? 150 : aura.rarity === 'legendary' ? 120 : aura.rarity === 'epic' ? 100 : 80;
+       const numAuras = aura.rarity === 'ultra' ? 4 : (aura.rarity === 'mythic' || aura.rarity === 'legendary') ? 3 : aura.rarity === 'epic' ? 2 : 1;
+       const auraColor = aura.rarity === 'ultra' ? '#cfb53b' : aura.rarity === 'mythic' ? '#ef4444' : aura.rarity === 'legendary' ? '#f59e0b' : aura.rarity === 'epic' ? '#a855f7' : '#3b82f6';
+       
+       ctx.save();
+       ctx.rotate(time * 0.002);
+       for (let i = 0; i < numAuras; i++) {
+          const angleOffset = (i / numAuras) * Math.PI * 2;
+          const ax = Math.cos(angleOffset) * auraRadius;
+          const ay = Math.sin(angleOffset) * Math.abs(auraRadius * 0.5); // oval orbit
+          
+          ctx.beginPath();
+          ctx.arc(ax, ay, 6, 0, Math.PI * 2);
+          ctx.fillStyle = auraColor;
+          ctx.shadowColor = auraColor;
+          ctx.shadowBlur = 10;
+          ctx.fill();
+       }
+       ctx.restore();
+       
+       // Draw subtle radius ring
+       ctx.beginPath();
+       ctx.ellipse(0, 0, auraRadius, auraRadius * 0.5, 0, 0, Math.PI * 2);
+       ctx.strokeStyle = auraColor + '40';
+       ctx.lineWidth = 1;
+       ctx.stroke();
+    }
     
     // Calculate facing angle based on movement
     const currentVelocity = velocity.current || { x: 0, y: 0 };
@@ -533,95 +857,105 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       const isEpic = rarity === 'epic';
       const isLegendary = rarity === 'legendary';
       const isMythic = rarity === 'mythic';
+      const isUltra = rarity === 'ultra';
 
-      // Wings for Mythic
-      if (isMythic) {
-        ctx.fillStyle = '#991b1b';
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = '#ff0000';
+      // Wings for Mythic / Ultra
+      if (isMythic || isUltra) {
+        ctx.fillStyle = isUltra ? '#5b21b6' : '#991b1b';
+        ctx.shadowBlur = isUltra ? 30 : 20;
+        ctx.shadowColor = isUltra ? '#2dd4bf' : '#ff0000';
         
-        // Left Wing
         ctx.beginPath();
         ctx.moveTo(-15, -15);
-        ctx.bezierCurveTo(-50, -40, -60, 0, -15, -5);
+        ctx.bezierCurveTo(isUltra ? -70 : -50, isUltra ? -60 : -40, isUltra ? -80 : -60, isUltra ? 10 : 0, -15, -5);
         ctx.fill();
         
-        // Right Wing
         ctx.beginPath();
         ctx.moveTo(-15, 15);
-        ctx.bezierCurveTo(-50, 40, -60, 0, -15, 5);
+        ctx.bezierCurveTo(isUltra ? -70 : -50, isUltra ? 60 : 40, isUltra ? -80 : -60, isUltra ? -10 : 0, -15, 5);
         ctx.fill();
         ctx.shadowBlur = 0;
       }
 
       // Shoulder items (Uncommon+)
-      if (isUncommon || isRare || isEpic || isLegendary || isMythic) {
-        ctx.fillStyle = isMythic ? '#111' : isLegendary ? '#fbbf24' : isEpic ? '#c084fc' : '#64748b';
-        ctx.strokeStyle = isMythic ? '#ef4444' : '#1e293b';
-        ctx.lineWidth = 2;
+      if (isUncommon || isRare || isEpic || isLegendary || isMythic || isUltra) {
+        ctx.fillStyle = isUltra ? '#2e1065' : isMythic ? '#111' : isLegendary ? '#fbbf24' : isEpic ? '#c084fc' : '#64748b';
+        ctx.strokeStyle = isUltra ? '#2dd4bf' : isMythic ? '#ef4444' : '#1e293b';
+        ctx.lineWidth = isUltra ? 3 : 2;
         
-        const sSize = (isLegendary || isMythic) ? 14 : 10;
+        const sSize = isUltra ? 18 : (isLegendary || isMythic) ? 14 : 10;
         
         // Left shoulder
         ctx.fillRect(-22, -18, sSize, sSize); ctx.strokeRect(-22, -18, sSize, sSize);
         // Right shoulder
         ctx.fillRect(-22, 10, sSize, sSize); ctx.strokeRect(-22, 10, sSize, sSize);
 
-        if (isLegendary || isMythic) {
-          // Spikes for Legendary/Mythic
-          if (isMythic) {
-            ctx.fillStyle = '#ef4444';
-            ctx.shadowBlur = Date.now() % 1000 < 500 ? 15 : 5; // Pulse
-            ctx.shadowColor = '#ff0000';
+        if (isLegendary || isMythic || isUltra) {
+          // Spikes for Legendary/Mythic/Ultra
+          if (isMythic || isUltra) {
+            ctx.fillStyle = isUltra ? '#2dd4bf' : '#ef4444';
+            ctx.shadowBlur = Date.now() % 1000 < 500 ? (isUltra ? 25 : 15) : (isUltra ? 10 : 5); // Pulse
+            ctx.shadowColor = isUltra ? '#8b5cf6' : '#ff0000';
           }
           
           ctx.beginPath();
-          ctx.moveTo(-22, -18); ctx.lineTo(-35, -28); ctx.lineTo(-12, -18); ctx.fill();
+          ctx.moveTo(-22, -18); ctx.lineTo(isUltra ? -45 : -35, -28); ctx.lineTo(-12, -18); ctx.fill();
+          if (isUltra) {
+            ctx.beginPath();
+            ctx.moveTo(-22, -22); ctx.lineTo(-40, -10); ctx.lineTo(-12, -22); ctx.fill();
+          }
+
           ctx.beginPath();
-          ctx.moveTo(-22, 18); ctx.lineTo(-35, 28); ctx.lineTo(-12, 18); ctx.fill();
+          ctx.moveTo(-22, 18); ctx.lineTo(isUltra ? -45 : -35, 28); ctx.lineTo(-12, 18); ctx.fill();
+          if (isUltra) {
+            ctx.beginPath();
+            ctx.moveTo(-22, 22); ctx.lineTo(-40, 10); ctx.lineTo(-12, 22); ctx.fill();
+          }
           
           // Neon gems
-          ctx.fillStyle = isMythic ? '#ff0000' : '#fef3c7';
-          ctx.shadowBlur = 10;
-          ctx.shadowColor = isMythic ? '#ff0000' : '#fbbf24';
-          ctx.fillRect(-18, -14, 4, 4);
-          ctx.fillRect(-18, 14, 4, 4);
+          ctx.fillStyle = isUltra ? '#8b5cf6' : isMythic ? '#ff0000' : '#fef3c7';
+          ctx.shadowBlur = isUltra ? 15 : 10;
+          ctx.shadowColor = isUltra ? '#2dd4bf' : isMythic ? '#ff0000' : '#fbbf24';
+          ctx.fillRect(-18, -14, isUltra ? 6 : 4, isUltra ? 6 : 4);
+          ctx.fillRect(-18, 14, isUltra ? 6 : 4, isUltra ? 6 : 4);
           ctx.shadowBlur = 0;
         }
       }
 
       // Helmet (Epic+)
-      if (isEpic || isLegendary || isMythic) {
-        ctx.fillStyle = isMythic ? '#000' : isLegendary ? '#1a1a1a' : '#334155';
-        ctx.strokeStyle = isMythic ? '#ef4444' : '#475569';
+      if (isEpic || isLegendary || isMythic || isUltra) {
+        ctx.fillStyle = isUltra ? '#0f172a' : isMythic ? '#000' : isLegendary ? '#1a1a1a' : '#334155';
+        ctx.strokeStyle = isUltra ? '#8b5cf6' : isMythic ? '#ef4444' : '#475569';
+        ctx.lineWidth = isUltra ? 3 : 2;
         ctx.beginPath();
-        ctx.arc(5, 0, 15, -Math.PI * 0.7, Math.PI * 0.7);
+        ctx.arc(5, 0, isUltra ? 18 : 15, -Math.PI * (isUltra ? 0.8 : 0.7), Math.PI * (isUltra ? 0.8 : 0.7));
         ctx.fill();
         ctx.stroke();
         
         // Visor glow
-        ctx.fillStyle = isMythic ? '#ff0000' : isLegendary ? '#fbbf24' : '#60a5fa';
-        ctx.shadowBlur = (isLegendary || isMythic) ? 15 : 5;
+        ctx.fillStyle = isUltra ? '#2dd4bf' : isMythic ? '#ff0000' : isLegendary ? '#fbbf24' : '#60a5fa';
+        ctx.shadowBlur = (isLegendary || isMythic || isUltra) ? 15 : 5;
         if (isMythic) ctx.shadowBlur = 20 + Math.sin(Date.now() / 100) * 10;
+        if (isUltra) ctx.shadowBlur = 30 + Math.sin(Date.now() / 100) * 15;
         ctx.shadowColor = ctx.fillStyle;
-        ctx.fillRect(10, -8, 3, 16);
+        ctx.fillRect(10, -8, isUltra ? 4 : 3, 16);
         ctx.shadowBlur = 0;
       }
 
-      // Gloves (Common+) - added as part of armor visuals
-      ctx.fillStyle = isMythic ? '#111' : isLegendary ? '#fbbf24' : isEpic ? '#c084fc' : isRare ? '#3b82f6' : '#64748b';
+      // Gloves (Common+)
+      ctx.fillStyle = isUltra ? '#1e1b4b' : isMythic ? '#111' : isLegendary ? '#fbbf24' : isEpic ? '#c084fc' : isRare ? '#3b82f6' : '#64748b';
       // Left Hand
-      ctx.beginPath(); ctx.arc(15, -20, 5, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = isMythic ? '#ef4444' : '#000'; ctx.stroke();
+      ctx.beginPath(); ctx.arc(15, -20, isUltra ? 7 : 5, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = isUltra ? '#8b5cf6' : isMythic ? '#ef4444' : '#000'; ctx.stroke();
       // Right Hand
-      ctx.beginPath(); ctx.arc(15, 20, 5, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = isMythic ? '#ef4444' : '#000'; ctx.stroke();
+      ctx.beginPath(); ctx.arc(15, 20, isUltra ? 7 : 5, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = isUltra ? '#8b5cf6' : isMythic ? '#ef4444' : '#000'; ctx.stroke();
       
-      if (isLegendary || isMythic) {
+      if (isLegendary || isMythic || isUltra) {
         // Glowing gems on hands
-        ctx.fillStyle = isMythic ? '#ff0000' : '#ffffff';
-        ctx.shadowBlur = 8;
-        ctx.shadowColor = isMythic ? '#ff0000' : '#fbbf24';
-        ctx.fillRect(13, -22, 4, 4);
-        ctx.fillRect(13, 18, 4, 4);
+        ctx.fillStyle = isUltra ? '#2dd4bf' : isMythic ? '#ff0000' : '#ffffff';
+        ctx.shadowBlur = isUltra ? 12 : 8;
+        ctx.shadowColor = isUltra ? '#2dd4bf' : isMythic ? '#ff0000' : '#fbbf24';
+        ctx.fillRect(13, -22, isUltra ? 6 : 4, isUltra ? 6 : 4);
+        ctx.fillRect(13, 18, isUltra ? 6 : 4, isUltra ? 6 : 4);
         ctx.shadowBlur = 0;
       }
     } else {
@@ -632,9 +966,9 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     }
 
     // Inner detail (tunic/armor circle)
-    ctx.fillStyle = '#d4af37';
+    ctx.fillStyle = (armor && armor.rarity === 'ultra') ? '#8b5cf6' : '#d4af37';
     ctx.beginPath();
-    ctx.arc(0, 0, 12, 0, Math.PI * 2);
+    ctx.arc(0, 0, (armor && armor.rarity === 'ultra') ? 14 : 12, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
     
@@ -658,6 +992,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     const rarity = equippedWeapon?.rarity || 'common';
 
     const drawWeapon = () => {
+      const isUltra = rarity === 'ultra';
       const isMythic = rarity === 'mythic';
       const isLegendary = rarity === 'legendary';
       const isEpic = rarity === 'epic';
@@ -667,7 +1002,10 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       ctx.save();
       
       // Glow Effects for high tiers
-      if (isMythic) {
+      if (isUltra) {
+        ctx.shadowBlur = 30 + Math.sin(Date.now() / 150) * 15;
+        ctx.shadowColor = '#2dd4bf'; // Cyan/teal glow for ultra
+      } else if (isMythic) {
         ctx.shadowBlur = 25 + Math.sin(Date.now() / 150) * 10;
         ctx.shadowColor = '#ff0000';
       } else if (isLegendary) {
@@ -690,13 +1028,14 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         if (isEpic) { bowColor = '#c084fc'; bowSize = 40; }
         if (isLegendary) { bowColor = '#fbbf24'; bowSize = 45; }
         if (isMythic) { bowColor = '#ef4444'; bowSize = 55; }
+        if (isUltra) { bowColor = '#2dd4bf'; bowSize = 65; }
 
         ctx.strokeStyle = bowColor;
-        ctx.lineWidth = (isLegendary || isMythic) ? 6 : 4;
+        ctx.lineWidth = (isLegendary || isMythic || isUltra) ? 6 : 4;
         
         // Complex Bow Shape
         ctx.beginPath();
-        if (isLegendary || isEpic || isMythic) {
+        if (isLegendary || isEpic || isMythic || isUltra) {
           // Double recurve bow
           ctx.moveTo(15, -bowSize);
           ctx.bezierCurveTo(45, -bowSize, 45, -10, 15, 0);
@@ -707,14 +1046,14 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         ctx.stroke();
 
         // Decorative elements
-        if (isLegendary) {
-          ctx.fillStyle = '#fef3c7';
-          ctx.beginPath(); ctx.arc(40, 0, 4, 0, Math.PI*2); ctx.fill(); // Core gem
+        if (isLegendary || isMythic || isUltra) {
+          ctx.fillStyle = isUltra ? '#8b5cf6' : isMythic ? '#000' : '#fef3c7';
+          ctx.beginPath(); ctx.arc(40, 0, isUltra ? 6 : 4, 0, Math.PI*2); ctx.fill(); // Core gem
         }
 
         // String
-        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = isUltra ? 'rgba(45, 212, 191, 0.8)' : 'rgba(255,255,255,0.6)';
+        ctx.lineWidth = isUltra ? 2 : 1;
         ctx.beginPath();
         ctx.moveTo(15, -bowSize);
         ctx.lineTo(15, bowSize);
@@ -728,41 +1067,42 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         if (isEpic) gemColor = '#a855f7';
         if (isLegendary) { gemColor = '#fbbf24'; staffColor = '#451a03'; }
         if (isMythic) { gemColor = '#ff0000'; staffColor = '#000'; }
+        if (isUltra) { gemColor = '#8b5cf6'; staffColor = '#111827'; }
 
         // Staff Body
         ctx.fillStyle = staffColor;
-        ctx.fillRect(0, -3, 80, 6);
-        if (isMythic) {
-          ctx.strokeStyle = '#ef4444';
+        ctx.fillRect(0, -3, isUltra ? 100 : 80, 6);
+        if (isMythic || isUltra) {
+          ctx.strokeStyle = isUltra ? '#2dd4bf' : '#ef4444';
           ctx.lineWidth = 1;
-          ctx.strokeRect(0, -3, 80, 6);
+          ctx.strokeRect(0, -3, isUltra ? 100 : 80, 6);
         }
 
         // Staff Head
         ctx.save();
-        ctx.translate(85, 0);
-        ctx.strokeStyle = isMythic ? '#ef4444' : staffColor;
-        ctx.lineWidth = isMythic ? 6 : 4;
+        ctx.translate(isUltra ? 105 : 85, 0);
+        ctx.strokeStyle = isUltra ? '#2dd4bf' : isMythic ? '#ef4444' : staffColor;
+        ctx.lineWidth = (isMythic || isUltra) ? 6 : 4;
         ctx.beginPath();
-        ctx.arc(0, 0, 15, -Math.PI, Math.PI);
-        if (isMythic) {
+        ctx.arc(0, 0, isUltra ? 20 : 15, -Math.PI, Math.PI);
+        if (isMythic || isUltra) {
           // Spikes on staff head
           for(let i=0; i<8; i++) {
             ctx.rotate(Math.PI/4);
-            ctx.moveTo(15, 0); ctx.lineTo(25, 0);
+            ctx.moveTo(isUltra ? 20 : 15, 0); ctx.lineTo(isUltra ? 35 : 25, 0);
           }
         }
         ctx.stroke();
 
         // Glow Gem
-        ctx.shadowBlur = isMythic ? 30 : isLegendary ? 20 : 10;
+        ctx.shadowBlur = isUltra ? 40 : isMythic ? 30 : isLegendary ? 20 : 10;
         ctx.shadowColor = gemColor;
         ctx.fillStyle = gemColor;
         ctx.beginPath();
-        ctx.moveTo(0, -10);
-        ctx.lineTo(8, 0);
-        ctx.lineTo(0, 10);
-        ctx.lineTo(-8, 0);
+        ctx.moveTo(0, isUltra ? -15 : -10);
+        ctx.lineTo(isUltra ? 12 : 8, 0);
+        ctx.lineTo(0, isUltra ? 15 : 10);
+        ctx.lineTo(isUltra ? -12 : -8, 0);
         ctx.closePath();
         ctx.fill();
         ctx.restore();
@@ -777,21 +1117,22 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         if (isEpic) { bladeColor = '#7e22ce'; bladeLength = 95; bladeWidth = 8; }
         if (isLegendary) { bladeColor = '#fbbf24'; bladeLength = 110; bladeWidth = 10; }
         if (isMythic) { bladeColor = '#ef4444'; bladeLength = 130; bladeWidth = 12; }
+        if (isUltra) { bladeColor = '#2dd4bf'; bladeLength = 160; bladeWidth = 14; }
 
         // Gradient for Blade
         const grad = ctx.createLinearGradient(15, 0, 15 + bladeLength, 0);
-        grad.addColorStop(0, isMythic ? '#1a0000' : '#475569');
+        grad.addColorStop(0, isUltra ? '#4c1d95' : isMythic ? '#1a0000' : '#475569');
         grad.addColorStop(0.2, bladeColor);
-        grad.addColorStop(1, isMythic ? '#ff0000' : '#ffffff');
+        grad.addColorStop(1, isUltra ? '#8b5cf6' : isMythic ? '#ff0000' : '#ffffff');
 
         ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.moveTo(15, -bladeWidth);
         
-        if (isEpic || isLegendary || isMythic) {
+        if (isEpic || isLegendary || isMythic || isUltra) {
           // Serrated/Fantasy Edge
           for(let i=0; i<bladeLength-10; i+=10) {
-            ctx.lineTo(15 + i + 5, -bladeWidth - ((i%20===0 || (isMythic && i%10===0)) ? (isMythic ? 8 : 4) : 0));
+            ctx.lineTo(15 + i + 5, -bladeWidth - ((i%20===0 || ((isMythic || isUltra) && i%10===0)) ? ((isMythic || isUltra) ? 8 : 4) : 0));
             ctx.lineTo(15 + i + 10, -bladeWidth);
           }
         } else {
@@ -800,9 +1141,9 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         
         ctx.lineTo(15 + bladeLength, 0); // Tip
         
-        if (isEpic || isLegendary || isMythic) {
+        if (isEpic || isLegendary || isMythic || isUltra) {
           for(let i=bladeLength-10; i>=0; i-=10) {
-            ctx.lineTo(15 + i + 5, bladeWidth + ((i%20===0 || (isMythic && i%10===0)) ? (isMythic ? 8 : 4) : 0));
+            ctx.lineTo(15 + i + 5, bladeWidth + ((i%20===0 || ((isMythic || isUltra) && i%10===0)) ? ((isMythic || isUltra) ? 8 : 4) : 0));
             ctx.lineTo(15 + i, bladeWidth);
           }
         } else {
@@ -814,18 +1155,18 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         ctx.fill();
 
         // Crossguard - grows with rarity
-        ctx.fillStyle = isMythic ? '#000' : isLegendary ? '#d97706' : '#1e293b';
-        ctx.strokeStyle = isMythic ? '#ff0000' : 'transparent';
-        const guardSize = 10 + (isRare ? 10 : isEpic ? 20 : isLegendary ? 30 : isMythic ? 45 : 0);
-        ctx.fillRect(15, -guardSize/2, 6, guardSize);
-        if (isMythic) ctx.strokeRect(15, -guardSize/2, 6, guardSize);
+        ctx.fillStyle = isUltra ? '#5b21b6' : isMythic ? '#000' : isLegendary ? '#d97706' : '#1e293b';
+        ctx.strokeStyle = isUltra ? '#2dd4bf' : isMythic ? '#ff0000' : 'transparent';
+        const guardSize = 10 + (isRare ? 10 : isEpic ? 20 : isLegendary ? 30 : isMythic ? 45 : isUltra ? 60 : 0);
+        ctx.fillRect(15, -guardSize/2, isUltra ? 8 : 6, guardSize);
+        if (isMythic || isUltra) ctx.strokeRect(15, -guardSize/2, isUltra ? 8 : 6, guardSize);
         
         // Hilt
-        ctx.fillStyle = isMythic ? '#111' : '#334155';
+        ctx.fillStyle = isUltra ? '#2e1065' : isMythic ? '#111' : '#334155';
         ctx.fillRect(0, -3, 15, 6);
         // Pommel
-        ctx.fillStyle = isMythic ? '#ff0000' : isLegendary ? '#fbbf24' : '#475569';
-        ctx.beginPath(); ctx.arc(0, 0, isMythic ? 7 : 5, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = isUltra ? '#2dd4bf' : isMythic ? '#ff0000' : isLegendary ? '#fbbf24' : '#475569';
+        ctx.beginPath(); ctx.arc(0, 0, isUltra ? 10 : isMythic ? 7 : 5, 0, Math.PI*2); ctx.fill();
       }
       ctx.restore();
     };
@@ -946,10 +1287,56 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     };
   }, []); // Remove velocity dependency
 
+  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    const state = useGameStore.getState();
+    const camX = state.player.x - canvas.width / 2;
+    const camY = state.player.y - canvas.height / 2;
+
+    const worldX = clickX + camX;
+    const worldY = clickY + camY;
+
+    let targetFound = false;
+
+    // Check enemies
+    for (const en of state.enemies) {
+      const dist = Math.hypot(en.x - worldX, en.y - worldY);
+      const radius = en.type === 'boss' ? 45 : 25; // slightly larger hit area
+      if (dist <= radius + 15) {
+        state.setCurrentTargetId(en.id);
+        targetFound = true;
+        break;
+      }
+    }
+
+    if (!targetFound) {
+      // Check online players
+      for (const p of state.onlinePlayers || []) {
+        const dist = Math.hypot(p.x - worldX, p.y - worldY);
+        // players radius is around 20 for body + buffer
+        if (dist <= 35) {
+          state.setCurrentTargetId('player_' + p.id);
+          targetFound = true;
+          break;
+        }
+      }
+    }
+
+    if (!targetFound) {
+      state.setCurrentTargetId(null);
+    }
+  };
+
   return (
     <canvas 
       ref={canvasRef}
-      className="block w-full h-full"
+      className="block w-full h-full cursor-crosshair"
+      onClick={handleCanvasClick}
     />
   );
 });

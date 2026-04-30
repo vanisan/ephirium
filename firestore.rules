@@ -47,7 +47,27 @@ service cloud.firestore {
       allow delete: if isOwner(userId);
     }
 
-    // Room data validation
+    // World Players
+    function isValidWorldPlayer(data) {
+      return data.keys().hasAll(['locationId', 'x', 'y', 'hp', 'maxHp', 'level', 'nickname', 'updatedAt']) &&
+             data.locationId is string &&
+             data.x is number &&
+             data.y is number &&
+             data.hp is number &&
+             data.maxHp is number &&
+             data.level is number &&
+             data.nickname is string &&
+             data.updatedAt is number;
+    }
+
+    match /worldPlayers/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      
+      allow create: if isOwner(userId) && isValidWorldPlayer(incoming());
+      allow update: if isSignedIn() && isValidWorldPlayer(incoming()); // Allow PVP damage
+      allow delete: if isOwner(userId);
+    }
     function isValidRoom(data) {
       return data.host is map &&
              data.host.uid is string &&
