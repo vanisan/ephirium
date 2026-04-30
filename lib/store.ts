@@ -113,6 +113,8 @@ export interface OnlinePlayer {
   maxHp: number;
   level: number;
   nickname: string;
+  equipment?: any;
+  aura?: any;
 }
 
 interface GameState {
@@ -398,7 +400,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   inventory: [],
   onlinePlayers: [],
   enemies: [],
-  isAutoBattle: true,
+  isAutoBattle: false,
   locations: [
     { id: 'forest', name: 'Окраина Леса', minLevel: 1, cost: 0, enemyBaseHp: 30, color: '#0a1a10', groundTheme: 'forest', description: 'Обычные и необычные вещи' },
     { id: 'deep_forest', name: 'Глубины Леса', minLevel: 5, cost: 200, enemyBaseHp: 80, color: '#051008', groundTheme: 'forest', description: 'Необычные вещи, шанс на редкие' },

@@ -161,9 +161,17 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const players: OnlinePlayer[] = [];
       const now = Date.now();
+      const currentState = useGameStore.getState();
+      
       snapshot.forEach(d => {
         const data = d.data();
-        if (d.id !== user.uid && now - data.updatedAt < 5000) { // Only show active players
+        if (d.id === user.uid) {
+           // It's me. Check if my HP on server is lower than my local HP (meaning I was attacked!)
+           if (data.hp < currentState.player.hp) {
+              const dmg = currentState.player.hp - data.hp;
+              currentState.damagePlayer(dmg);
+           }
+        } else if (now - data.updatedAt < 5000) { // Only show active players
           players.push({
             id: d.id,
             x: data.x,
@@ -172,6 +180,8 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
             maxHp: data.maxHp,
             level: data.level,
             nickname: data.nickname,
+            equipment: data.equipment,
+            aura: data.aura
           });
         }
       });
@@ -180,7 +190,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         console.error('Multiplayer sync error', error);
     });
 
-    // Write player position every 1 seconds
+    // Write player position every 300 ms
     const interval = setInterval(() => {
       const currentState = useGameStore.getState();
       if (!currentState.user) return;
@@ -192,13 +202,19 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           hp: currentState.player.hp,
           maxHp: currentState.player.maxHp,
           level: currentState.player.level,
-          nickname: currentState.user.email.split('@')[0],
+          nickname: currentState.user.email?.split('@')[0] || currentState.user.uid,
+          equipment: {
+            weapon: currentState.equipment?.weapon ? { icon: currentState.equipment.weapon.icon, rarity: currentState.equipment.weapon.rarity } : null,
+            armor: currentState.equipment?.armor ? { rarity: currentState.equipment.armor.rarity } : null,
+            accessory: currentState.equipment?.accessory ? { icon: currentState.equipment.accessory.icon, rarity: currentState.equipment.accessory.rarity } : null,
+          },
+          aura: currentState.equipment?.aura ? { rarity: currentState.equipment.aura.rarity } : null,
           updatedAt: Date.now()
         }, { merge: true });
       } catch (e) {
           console.error(e);
       }
-    }, 1000);
+    }, 300);
 
     return () => {
       unsubscribe();
@@ -263,7 +279,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       const isStaff = wIcon === 'staff' || wName.includes('посох');
       const dynamicAttackRange = isBow ? 350 : isStaff ? 225 : ATTACK_RANGE;
 
-      // Find target: either currentTargetId or nearest enemy (if auto battle)
+      // Find target only by currentTargetId
       let target: { id: string, x: number, y: number, isPlayer?: boolean } | null = null;
       
       if (state.currentTargetId) {
@@ -275,13 +291,6 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           const e = state.enemies.find(e => e.id === state.currentTargetId);
           if (e) target = e;
         }
-      } else if (isAutoBattle) {
-        target = enemies.reduce((prev: Enemy | null, current: Enemy) => {
-          const distCurrent = Math.hypot(current.x - player.x, current.y - player.y);
-          const distPrev = prev ? Math.hypot(prev.x - player.x, prev.y - player.y) : Infinity;
-          return distCurrent < distPrev ? current : prev;
-        }, null);
-        if (target) state.setCurrentTargetId(target.id);
       }
 
       if (target) {
@@ -381,6 +390,9 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       } else {
          if (state.currentTargetId) {
              state.setCurrentTargetId(null); // Clear invalid target
+             if (state.isAutoBattle) {
+                useGameStore.setState({ isAutoBattle: false });
+             }
          }
          const loc = state.locations.find(l => l.id === state.currentLocationId);
          if (loc?.groundTheme === 'dungeon_corridor' && isAutoBattle && (velocity.current?.x || 0) === 0 && (velocity.current?.y || 0) === 0) {
@@ -742,20 +754,74 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       ctx.save();
       ctx.translate(p.x, p.y);
 
+      // Aura
+      if (p.aura) {
+         const auraRadius = p.aura.rarity === 'ultra' ? 200 : p.aura.rarity === 'mythic' ? 150 : p.aura.rarity === 'legendary' ? 120 : p.aura.rarity === 'epic' ? 100 : 80;
+         const auraColor = p.aura.color || '#3b82f6';
+         ctx.beginPath();
+         ctx.ellipse(0, 0, auraRadius, auraRadius * 0.5, 0, 0, Math.PI * 2);
+         ctx.strokeStyle = auraColor + '40';
+         ctx.lineWidth = 1;
+         ctx.stroke();
+      }
+
       // Shadow
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
       ctx.beginPath();
       ctx.arc(2, 2, radius, 0, Math.PI * 2);
       ctx.fill();
 
-      // Body 
-      ctx.fillStyle = '#6366f1'; // Different color for other players
+      // Body / Armor
+      let bodyColor = '#e5c298';
+      let objArmor = p.equipment?.armor;
+      if (objArmor) {
+         const rarity = objArmor.rarity;
+         bodyColor = rarity === 'ultra' ? '#0f172a' : rarity === 'mythic' ? '#111' : rarity === 'legendary' ? '#fbbf24' : rarity === 'epic' ? '#c084fc' : '#64748b';
+      }
+      ctx.fillStyle = bodyColor;
       ctx.beginPath();
       ctx.arc(0, 0, radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = '#818cf8';
       ctx.lineWidth = 2;
       ctx.stroke();
+
+      // Simple Hand / Weapon
+      let wp = p.equipment?.weapon;
+      if (wp) {
+         ctx.save();
+         ctx.translate(15, 0); // Position of hand/weapon
+         const rarity = wp.rarity;
+         const isUltra = rarity === 'ultra';
+         const isMythic = rarity === 'mythic';
+         const isLegendary = rarity === 'legendary';
+         let wpColor = '#cbd5e1';
+         if (rarity === 'uncommon') wpColor = '#4ade80';
+         if (rarity === 'rare') wpColor = '#60a5fa';
+         if (rarity === 'epic') wpColor = '#7e22ce';
+         if (isLegendary) wpColor = '#fbbf24';
+         if (isMythic) wpColor = '#ef4444';
+         if (isUltra) wpColor = '#2dd4bf';
+
+         if (wp.icon === 'bow') {
+            ctx.strokeStyle = wpColor;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(0, 0, 20, -Math.PI/2, Math.PI/2);
+            ctx.stroke();
+         } else if (wp.icon === 'staff') {
+            ctx.fillStyle = '#78350f';
+            ctx.fillRect(0, -2, 40, 4);
+            ctx.fillStyle = wpColor;
+            ctx.beginPath();
+            ctx.arc(40, 0, 8, 0, Math.PI*2);
+            ctx.fill();
+         } else {
+            ctx.fillStyle = wpColor;
+            ctx.fillRect(0, -3, 50, 6);
+         }
+         ctx.restore();
+      }
 
       ctx.restore();
 
@@ -1287,7 +1353,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     };
   }, []); // Remove velocity dependency
 
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -1335,8 +1401,8 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
   return (
     <canvas 
       ref={canvasRef}
-      className="block w-full h-full cursor-crosshair"
-      onClick={handleCanvasClick}
+      className="block w-full h-full cursor-crosshair touch-none"
+      onPointerDown={handlePointerDown}
     />
   );
 });

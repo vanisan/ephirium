@@ -7,8 +7,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { auth } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';
 
-import { PvPArena } from './PvPArena';
-
 interface HUDProps {
   velocity: React.RefObject<{ x: number, y: number }>;
 }
@@ -218,32 +216,43 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
           </div>
         </div>
 
-        {/* Auto Battle Button (Top Right) */}
-        <div className="flex gap-2">
-          <button 
-            onClick={toggleAutoBattle}
-            className={`p-2 sm:p-4 rounded-lg sm:rounded-xl border transition-all active:scale-95 group font-cinzel ${
-              isAutoBattle 
-                ? 'bg-[#b8860b] border-[#d4af37] text-[#1a1612] shadow-[0_0_10px_rgba(184,134,11,0.4)]' 
-                : 'bg-[#1a1612]/80 border-[#4a3b2c] text-[#e5d3b3]/40'
-            }`}
-          >
-            <Zap size={18} className={isAutoBattle ? 'animate-pulse' : ''} />
-            <span className="text-[8px] sm:text-[10px] block font-bold tracking-widest mt-0.5 sm:mt-1 uppercase">АВТО</span>
-          </button>
+        {/* Mobile coords & Settings */}
+        <div className="flex flex-col items-end gap-2">
+            <div className="text-[10px] sm:hidden font-cinzel text-[#d4af37] bg-black/60 px-2 py-1 rounded border border-[#d4af37]/30 backdrop-blur-sm">
+                X:{Math.round(player.x)} Y:{Math.round(player.y)}
+            </div>
+          {/* We removed the general Auto button per user request */}
         </div>
       </div>
 
       {/* Bottom Navigation: Mobile Action Bar */}
-      <div className="sm:hidden fixed bottom-0 inset-x-0 bg-[#0f0d0b]/98 border-t-2 border-[#4a3b2c] pointer-events-auto p-2 flex justify-around items-center z-[60] backdrop-blur-xl">
-        <NavButton active={activeTab === 'character'} onClick={() => setActiveTab('character')} icon={<User size={20} />} label="ГЕРОЙ" />
-        <NavButton active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} icon={<Package size={20} />} label="СУМКА" />
-        <NavButton active={activeTab === 'city'} onClick={() => setActiveTab('city')} icon={<Hammer size={20} />} label="ГОРОД" />
-        <NavButton active={activeTab === 'locations'} onClick={() => setActiveTab('locations')} icon={<MapIcon size={20} />} label="МИР" />
+      <div className="sm:hidden fixed bottom-0 inset-x-0 bg-[#0f0d0b]/98 border-t-2 border-[#4a3b2c] pointer-events-auto p-[10px] flex justify-around items-center z-[60] backdrop-blur-xl">
+        <NavButton active={activeTab === 'character'} onClick={() => setActiveTab('character')} icon={<User size={24} />} label="ГЕРОЙ" />
+        <NavButton active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} icon={<Package size={24} />} label="СУМКА" />
+        <NavButton active={activeTab === 'city'} onClick={() => setActiveTab('city')} icon={<Hammer size={24} />} label="ГОРОД" />
+        <NavButton active={activeTab === 'locations'} onClick={() => setActiveTab('locations')} icon={<MapIcon size={24} />} label="МИР" />
       </div>
 
-      {/* Quick Potion Bar (Mobile) */}
-      <div className="sm:hidden fixed bottom-20 right-4 flex flex-col items-center gap-2 z-50 pointer-events-auto">
+      {/* Quick Potion Bar & Attack (Mobile) */}
+      <div className="sm:hidden fixed bottom-[90px] right-4 flex flex-col items-end gap-4 z-50 pointer-events-auto">
+        
+        <button 
+          onClick={toggleAutoBattle}
+          disabled={!useGameStore.getState().currentTargetId}
+          className={`w-20 h-20 rounded-full border-2 flex items-center justify-center transition-all active:scale-90 shadow-xl ${
+            isAutoBattle && useGameStore.getState().currentTargetId 
+              ? 'bg-red-700 border-red-400 shadow-[0_0_20px_rgba(220,38,38,0.6)]' 
+              : useGameStore.getState().currentTargetId
+                ? 'bg-red-950/80 border-red-800'
+                : 'bg-gray-900 border-gray-700 opacity-50'
+          }`}
+        >
+          <div className="flex flex-col items-center">
+            <Sword size={32} className={`text-white ${isAutoBattle ? 'animate-bounce' : ''}`} />
+            <span className="text-[10px] font-bold text-white uppercase mt-1 tracking-widest leading-none">Атака</span>
+          </div>
+        </button>
+
         <button 
           onClick={usePotion}
           disabled={player.potions <= 0 || player.potionCooldown > 0}
@@ -264,7 +273,20 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
 
       {/* Desktop Main Navigation (Fixed on right) */}
       <div className="hidden sm:flex absolute right-4 top-1/2 -translate-y-1/2 flex-col gap-3 pointer-events-auto">
-        <button onClick={toggleAutoBattle} className={`p-4 rounded-xl border transition-all ${isAutoBattle ? 'bg-[#b8860b] text-[#1a1612]' : 'bg-[#1a1612]/80 border-[#4a3b2c] text-[#e5d3b3]/40'}`}><Zap size={24} /><span className="text-[10px] block font-bold mt-1 uppercase">Авто</span></button>
+        <button 
+          onClick={toggleAutoBattle} 
+          disabled={!useGameStore.getState().currentTargetId}
+          className={`p-4 rounded-xl border transition-all ${
+            isAutoBattle && useGameStore.getState().currentTargetId 
+              ? 'bg-red-700 text-white border-red-400 shadow-[0_0_15px_rgba(220,38,38,0.5)]' 
+              : useGameStore.getState().currentTargetId
+                ? 'bg-red-950/80 border-red-800 text-red-500'
+                : 'bg-gray-900 border-gray-700 text-gray-600 opacity-50'
+          }`}
+        >
+          <Sword size={24} className={isAutoBattle ? 'animate-bounce' : ''} />
+          <span className="text-[10px] block font-bold mt-1 uppercase">Атака</span>
+        </button>
         <button onClick={() => setActiveTab(activeTab === 'character' ? null : 'character')} className={`p-4 rounded-xl border transition-all ${activeTab === 'character' ? 'bg-[#e5d3b3] text-[#1a1612]' : 'bg-[#1a1612]/80 border-[#4a3b2c] text-[#e5d3b3]'}`}><User size={24} /><span className="text-[10px] block font-bold mt-1 uppercase">Герой</span></button>
         <button onClick={() => setActiveTab(activeTab === 'inventory' ? null : 'inventory')} className={`p-4 rounded-xl border transition-all ${activeTab === 'inventory' ? 'bg-[#e5d3b3] text-[#1a1612]' : 'bg-[#1a1612]/80 border-[#4a3b2c] text-[#e5d3b3]'}`}><Package size={24} /><span className="text-[10px] block font-bold mt-1 uppercase">Сумка</span></button>
         <button onClick={() => setActiveTab(activeTab === 'city' ? null : 'city')} className={`p-4 rounded-xl border transition-all ${activeTab === 'city' ? 'bg-amber-600 text-white border-amber-400' : 'bg-[#1a1612]/80 border-[#4a3b2c] text-amber-500'}`}><Hammer size={24} /><span className="text-[10px] block font-bold mt-1 uppercase">Город</span></button>
@@ -293,7 +315,7 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-8 relative z-10 gap-4">
               <div className="flex flex-col w-full sm:w-auto">
                 <h2 className="text-xl sm:text-3xl font-cinzel font-bold text-[#d4af37] uppercase tracking-[0.2em] truncate">
-                   {activeTab === 'inventory' ? 'Вещи' : activeTab === 'locations' ? 'Локации' : activeTab === 'city' ? 'Город' : activeTab === 'arena' ? 'Арена' : 'Герой'}
+                   {activeTab === 'inventory' ? 'Вещи' : activeTab === 'locations' ? 'Локации' : activeTab === 'city' ? 'Город' : 'Герой'}
                 </h2>
                 <div className="h-0.5 w-full bg-[#d4af37]/40 mt-1" />
               </div>
@@ -316,8 +338,6 @@ export const HUD: React.FC<HUDProps> = ({ velocity }) => {
                   <InventoryItem key={item.id} item={item} onClick={() => setSelectedItem(item)} />
                 ))}
               </div>
-            ) : activeTab === 'arena' ? (
-              <PvPArena velocity={velocity} />
             ) : activeTab === 'city' ? (
               <div className="flex-1 overflow-y-auto flex flex-col gap-4 [&::-webkit-scrollbar]:hidden">
                  <div className="flex gap-2 mb-4 bg-black/40 p-1 rounded border border-[#d4af37]/20 shrink-0">
