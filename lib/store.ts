@@ -117,6 +117,7 @@ export interface OnlinePlayer {
   rotation?: number;
   equipment?: any;
   aura?: any;
+  skinColor?: string;
 }
 
 interface GameState {
