@@ -616,8 +616,8 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
   
       // 5.1 Interpolate Online Players
       onlinePlayersCache.current.forEach((val) => {
-        val.x += (val.tx - val.x) * 0.1;
-        val.y += (val.ty - val.y) * 0.1;
+        val.x += (val.tx - val.x) * 0.05; // Make interpolation slower / smoother for 300ms sync
+        val.y += (val.ty - val.y) * 0.05;
         
         // Shortest path rotation interpolation
         let diff = val.tr - val.r;
@@ -768,147 +768,205 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     ctx.fill();
 
     // 2.1 ADVANCED ARMOR VISUALS
-    if (armor) {
-      // Wings (Mythic+/Ultra)
-      if (isMythicA || isUltraA) {
-        const wingColor = isUltraA ? '#8b5cf6' : '#ef4444';
-        const wingGlow = isUltraA ? '#2dd4bf' : '#ff0000';
-        
-        ctx.save();
-        ctx.fillStyle = wingColor;
-        ctx.shadowBlur = isUltraA ? 40 : 25;
-        ctx.shadowColor = wingGlow;
-        
-        // Wing animation
-        const wingFlap = Math.sin(time * 0.01) * 0.15;
-        
-        // Wing Left
-        ctx.beginPath();
-        ctx.moveTo(-10, -5);
-        ctx.bezierCurveTo(-40 - wingFlap * 100, -50, -80, -20, -15, -10);
-        ctx.fill();
-        
-        // Wing Right
-        ctx.beginPath();
-        ctx.moveTo(-10, 5);
-        ctx.bezierCurveTo(-40 - wingFlap * 100, 50, -80, 20, -15, 10);
-        ctx.fill();
-        
-        // Inner Wing Layer
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = isUltraA ? '#4c1d95' : '#7f1d1d';
-        ctx.beginPath();
-        ctx.moveTo(-10, -5);
-        ctx.bezierCurveTo(-30, -30, -50, -10, -10, -8);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.moveTo(-10, 5);
-        ctx.bezierCurveTo(-30, 30, -50, 10, -10, 8);
-        ctx.fill();
-        
-        ctx.restore();
-      }
+    const isCommonA = rarityA === 'common' || !rarityA;
+    const isUncommonA = rarityA === 'uncommon';
+    const isRareA = rarityA === 'rare';
 
-      // Shoulders & Spikes (Uncommon+)
-      if (rarityA !== 'common') {
-        const sColor = isUltraA ? '#2e1065' : isMythicA ? '#111' : isLegendaryA ? '#fbbf24' : isEpicA ? '#c084fc' : '#64748b';
-        const gColor = isUltraA ? '#2dd4bf' : isMythicA ? '#ef4444' : '#1e293b';
-        ctx.fillStyle = sColor;
-        ctx.strokeStyle = gColor;
-        ctx.lineWidth = isUltraA ? 3 : 1;
-        
-        const sSize = isUltraA ? 18 : isLegendaryA ? 15 : 12;
-        
-        // Left Shoulder
-        ctx.fillRect(-18, -20, sSize, sSize); 
-        ctx.strokeRect(-18, -20, sSize, sSize);
-        // Right Shoulder
-        ctx.fillRect(-18, 20 - sSize, sSize, sSize); 
-        ctx.strokeRect(-18, 20 - sSize, sSize, sSize);
+    // A. Wings Layer (Below body)
+    if (armor && (isMythicA || isUltraA)) {
+      const wingColor = isUltraA ? '#8b5cf6' : '#ef4444';
+      const wingGlow = isUltraA ? '#2dd4bf' : '#ff0000';
+      
+      ctx.save();
+      ctx.fillStyle = wingColor;
+      ctx.shadowBlur = isUltraA ? 40 : 25;
+      ctx.shadowColor = wingGlow;
+      
+      const wingFlap = Math.sin(time * 0.01) * 0.15;
+      const wx = -10;
+      const spread = wingFlap * 40;
+      
+      // Left Wing (Top)
+      ctx.beginPath();
+      ctx.moveTo(wx, -5); 
+      ctx.lineTo(wx - 25 - spread, -25); 
+      ctx.lineTo(wx - 35 - spread * 1.5, -60); // tip 1
+      ctx.lineTo(wx - 30 - spread, -30); 
+      ctx.lineTo(wx - 55 - spread * 1.2, -40); // tip 2
+      ctx.lineTo(wx - 35 - spread, -15); 
+      ctx.lineTo(wx - 45 - spread, -5);  // tip 3
+      ctx.lineTo(wx, -2); 
+      ctx.fill();
 
-        if (isLegendaryA || isMythicA || isUltraA) {
-          ctx.fillStyle = gColor;
-          // Spike Left
-          ctx.beginPath(); 
-          ctx.moveTo(-15, -18); ctx.lineTo(-40, -28); ctx.lineTo(-8, -15); 
-          ctx.fill();
-          // Spike Right
-          ctx.beginPath(); 
-          ctx.moveTo(-15, 18); ctx.lineTo(-40, 28); ctx.lineTo(-8, 15); 
-          ctx.fill();
-          
-          if (isUltraA) {
-             // Extra Spikes
-             ctx.beginPath(); ctx.moveTo(-10, -20); ctx.lineTo(-25, -40); ctx.lineTo(0, -20); ctx.fill();
-             ctx.beginPath(); ctx.moveTo(-10, 20); ctx.lineTo(-25, 40); ctx.lineTo(0, 20); ctx.fill();
-          }
-        }
-      }
+      // Right Wing (Bottom)
+      ctx.beginPath();
+      ctx.moveTo(wx, 5);
+      ctx.lineTo(wx - 25 - spread, 25);
+      ctx.lineTo(wx - 35 - spread * 1.5, 60); // tip 1
+      ctx.lineTo(wx - 30 - spread, 30);
+      ctx.lineTo(wx - 55 - spread * 1.2, 40); // tip 2
+      ctx.lineTo(wx - 35 - spread, 15);
+      ctx.lineTo(wx - 45 - spread, 5);  // tip 3
+      ctx.lineTo(wx, 2);
+      ctx.fill();
+      
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = isUltraA ? '#4c1d95' : '#7f1d1d';
+      
+      // Inner Left Wing
+      ctx.beginPath();
+      ctx.moveTo(wx, -5); 
+      ctx.lineTo(wx - 15 - spread * 0.8, -15); 
+      ctx.lineTo(wx - 20 - spread * 1.2, -40); 
+      ctx.lineTo(wx - 20 - spread * 0.8, -20); 
+      ctx.lineTo(wx - 35 - spread, -25); 
+      ctx.lineTo(wx - 22 - spread * 0.8, -10); 
+      ctx.lineTo(wx - 25 - spread, -2); 
+      ctx.lineTo(wx, -2); 
+      ctx.fill();
 
-      // Helmet (Epic+)
-      if (isEpicA || isLegendaryA || isMythicA || isUltraA) {
-        ctx.save();
-        const helmColor = isUltraA ? '#0f172a' : isMythicA ? '#000' : isLegendaryA ? '#1a1a1a' : '#334155';
-        ctx.fillStyle = helmColor;
-        
-        ctx.beginPath();
-        ctx.arc(6, 0, isUltraA ? 19 : 16, -Math.PI * 0.75, Math.PI * 0.75);
-        ctx.fill();
-        
-        ctx.strokeStyle = isUltraA ? '#8b5cf6' : isMythicA ? '#ef4444' : isLegendaryA ? '#fbbf24' : '#475569';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        
-        // Visor Glow
-        const visorColor = isUltraA ? '#2dd4bf' : isMythicA ? '#ff0000' : isLegendaryA ? '#fbbf24' : '#60a5fa';
-        ctx.fillStyle = visorColor;
-        ctx.shadowBlur = isUltraA ? 25 : 12;
-        ctx.shadowColor = visorColor;
-        ctx.fillRect(12, -7, 4, 14);
-        
-        // Horns for Mythic/Ultra
-        if (isMythicA || isUltraA) {
-           ctx.fillStyle = helmColor;
-           ctx.beginPath();
-           ctx.moveTo(5, -15); ctx.quadraticCurveTo(15, -35, 30, -25); ctx.lineTo(10, -10); ctx.fill();
-           ctx.beginPath();
-           ctx.moveTo(5, 15); ctx.quadraticCurveTo(15, 35, 30, 25); ctx.lineTo(10, 10); ctx.fill();
-        }
-        
-        ctx.restore();
-      }
+      // Inner Right Wing
+      ctx.beginPath();
+      ctx.moveTo(wx, 5); 
+      ctx.lineTo(wx - 15 - spread * 0.8, 15); 
+      ctx.lineTo(wx - 20 - spread * 1.2, 40); 
+      ctx.lineTo(wx - 20 - spread * 0.8, 20); 
+      ctx.lineTo(wx - 35 - spread, 25); 
+      ctx.lineTo(wx - 22 - spread * 0.8, 10); 
+      ctx.lineTo(wx - 25 - spread, 2); 
+      ctx.lineTo(wx, 2); 
+      ctx.fill();
+      ctx.restore();
     }
 
-    // Hands
-    const hColor = isUltraA ? '#1e1b4b' : isMythicA ? '#111' : isLegendaryA ? '#fbbf24' : skinColor;
-    ctx.fillStyle = hColor;
-    ctx.strokeStyle = (isUltraA || isMythicA) ? '#d4af37' : '#8a6d10';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(16, -14, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.arc(16, 14, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-
-    // Main Body
-    let bodyColor = skinColor;
+    // B. Body Base
+    ctx.fillStyle = skinColor;
     if (armor) {
-      bodyColor = isUltraA ? '#1e1b4b' : isMythicA ? '#111' : isLegendaryA ? '#fbbf24' : isEpicA ? '#c084fc' : '#64748b';
+      if (isCommonA) ctx.fillStyle = '#475569';
+      else if (isUncommonA) ctx.fillStyle = '#166534';
+      else if (isRareA) ctx.fillStyle = '#1e3a8a';
+      else if (isEpicA) ctx.fillStyle = '#4c1d95';
+      else if (isLegendaryA) ctx.fillStyle = '#854d0e';
+      else if (isMythicA) ctx.fillStyle = '#7f1d1d';
+      else if (isUltraA) ctx.fillStyle = '#bae6fd';
     }
-    ctx.fillStyle = bodyColor;
     ctx.beginPath();
     ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.fill();
-    
-    // Body Ornaments / Armor plating
-    if (armor) {
-        ctx.strokeStyle = isUltraA ? '#8b5cf6' : isMythicA ? '#ef4444' : isLegendaryA ? '#fbbf24' : '#ffffff40';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(-10, -10); ctx.lineTo(10, 0); ctx.lineTo(-10, 10);
-        ctx.stroke();
-    }
-
-    ctx.strokeStyle = (isUltraA || isMythicA) ? '#d4af37' : '#818cf8';
+    ctx.strokeStyle = '#0f172a';
     ctx.lineWidth = 2;
     ctx.stroke();
+
+    // C. Detailed Armor
+    if (armor) {
+      let base = '#64748b'; let trim = '#94a3b8'; let glow = '#ffffff';
+      if (isUncommonA) { base = '#22c55e'; trim = '#4ade80'; glow = '#86efac'; }
+      if (isRareA) { base = '#3b82f6'; trim = '#60a5fa'; glow = '#93c5fd'; }
+      if (isEpicA) { base = '#a855f7'; trim = '#c084fc'; glow = '#e9d5ff'; }
+      if (isLegendaryA) { base = '#eab308'; trim = '#facc15'; glow = '#fef08a'; }
+      if (isMythicA) { base = '#ef4444'; trim = '#f87171'; glow = '#fca5a5'; }
+      if (isUltraA) { base = '#e0f2fe'; trim = '#ffffff'; glow = '#38bdf8'; }
+
+      // Chest details
+      ctx.strokeStyle = trim; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(-8, -14); ctx.lineTo(10, 0); ctx.lineTo(-8, 14); ctx.stroke();
+      
+      // Core Gem / Belt
+      if (!isCommonA) {
+        ctx.fillStyle = glow;
+        ctx.shadowBlur = 10; ctx.shadowColor = glow;
+        ctx.beginPath(); ctx.moveTo(-2, 0); ctx.lineTo(-8, -5); ctx.lineTo(-14, 0); ctx.lineTo(-8, 5); ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      // Shoulders
+      ctx.save();
+      ctx.fillStyle = base; ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 1.5;
+      
+      const sWidth = isEpicA || isLegendaryA || isMythicA || isUltraA ? 16 : 12;
+      const sExt = isMythicA ? 42 : isLegendaryA ? 38 : isUltraA ? 45 : 30;
+
+      // Left Shoulder
+      ctx.beginPath(); 
+      ctx.moveTo(-10, -18); 
+      ctx.quadraticCurveTo(0, -sExt, sWidth, -16); 
+      ctx.lineTo(2, -18); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      
+      // Right Shoulder
+      ctx.beginPath(); 
+      ctx.moveTo(-10, 18); 
+      ctx.quadraticCurveTo(0, sExt, sWidth, 16); 
+      ctx.lineTo(2, 18); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+
+      // Shoulder trims
+      ctx.strokeStyle = trim; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(-6, -20); ctx.lineTo(sWidth-4, -18); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-6, 20); ctx.lineTo(sWidth-4, 18); ctx.stroke();
+      
+      if (isMythicA || isUltraA) {
+         // Extra Spikes
+         ctx.fillStyle = trim;
+         ctx.beginPath(); ctx.moveTo(0, -25); ctx.lineTo(15, -35); ctx.lineTo(10, -20); ctx.fill();
+         ctx.beginPath(); ctx.moveTo(0, 25); ctx.lineTo(15, 35); ctx.lineTo(10, 20); ctx.fill();
+      }
+      ctx.restore();
+
+      // Helmet
+      ctx.save();
+      ctx.fillStyle = base; ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 1.5;
+      
+      ctx.beginPath();
+      ctx.arc(4, 0, 15, -Math.PI*0.65, Math.PI*0.65);
+      ctx.lineTo(-6, 12); ctx.lineTo(-6, -12); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+
+      // Helmet Trim
+      ctx.strokeStyle = trim; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(4, 0, 12, -Math.PI*0.5, Math.PI*0.5); ctx.stroke();
+
+      // Plume / Ridge (backwards in top-down)
+      if (!isCommonA) {
+        ctx.fillStyle = isUltraA ? '#ffffff' : trim;
+        ctx.beginPath();
+        if (isMythicA || isUltraA) {
+           ctx.moveTo(0, -4); ctx.lineTo(-18, -10); ctx.lineTo(-12, 0); ctx.lineTo(-18, 10); ctx.lineTo(0, 4); ctx.fill();
+        } else {
+           ctx.moveTo(2, -3); ctx.lineTo(-15, -5); ctx.lineTo(-15, 5); ctx.lineTo(2, 3); ctx.fill();
+        }
+      }
+
+      // Visor / Eyes
+      ctx.fillStyle = glow;
+      ctx.shadowBlur = 12; ctx.shadowColor = glow;
+      if (isCommonA || isUncommonA) {
+          ctx.fillRect(10, -6, 3, 12);
+      } else if (isRareA || isEpicA) { // T-Visor
+          ctx.beginPath(); ctx.moveTo(6, -8); ctx.lineTo(12, -8); ctx.lineTo(12, -2); ctx.lineTo(16, -2); ctx.lineTo(16, 2); ctx.lineTo(12, 2); ctx.lineTo(12, 8); ctx.lineTo(6, 8); ctx.fill();
+      } else { // V-Visor
+          ctx.beginPath(); ctx.moveTo(8, -8); ctx.lineTo(16, -4); ctx.lineTo(18, 0); ctx.lineTo(16, 4); ctx.lineTo(8, 8); ctx.lineTo(12, 0); ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
+    // D. Hands (Gauntlets)
+    let hColor = skinColor;
+    if (armor) {
+       if (isCommonA) hColor = '#94a3b8';
+       else if (isUncommonA) hColor = '#4ade80';
+       else if (isRareA) hColor = '#60a5fa';
+       else if (isEpicA) hColor = '#c084fc';
+       else if (isLegendaryA) hColor = '#facc15';
+       else if (isMythicA) hColor = '#f87171';
+       else if (isUltraA) hColor = '#ffffff';
+    }
+    ctx.fillStyle = hColor;
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(16, -14, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(16, 14, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 
     // 2.2 WEAPON RENDERING
     if (weapon) {
@@ -916,10 +974,14 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       const isUltraW = r === 'ultra';
       const isMythicW = r === 'mythic';
       const isLegendaryW = r === 'legendary';
+      const isEpicW = r === 'epic';
+      const isRareW = r === 'rare';
+      const isUncommonW = r === 'uncommon';
+      const isCommonW = !r || r === 'common';
       
       let wpColor = '#cbd5e1';
-      if (r === 'uncommon') wpColor = '#4ade80';
-      if (r === 'rare') wpColor = '#60a5fa';
+      if (isUncommonW) wpColor = '#4ade80';
+      if (isRareW) wpColor = '#60a5fa';
       if (r === 'epic') wpColor = '#7e22ce';
       if (isLegendaryW) wpColor = '#fbbf24';
       if (isMythicW) wpColor = '#ef4444';
@@ -939,107 +1001,455 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
 
       const wIcon = weapon.icon || 'sword';
       if (wIcon === 'bow') {
+        ctx.save();
+        
+        let bSize = 18;
+        if (isUncommonW) bSize = 20;
+        if (isRareW) bSize = 24;
+        if (isEpicW) bSize = 28;
+        if (isLegendaryW) bSize = 34;
+        if (isMythicW) bSize = 40;
+        if (isUltraW) bSize = 48;
+
         ctx.strokeStyle = wpColor;
-        ctx.lineWidth = (isMythicW || isUltraW) ? 7 : 5;
-        const bSize = isUltraW ? 55 : isMythicW ? 45 : 35;
-        ctx.beginPath();
-        if (isLegendaryW || isMythicW || isUltraW) {
-          ctx.moveTo(10, -bSize); 
-          ctx.bezierCurveTo(50, -bSize, 50, -10, 10, 0); 
-          ctx.bezierCurveTo(50, 10, 50, bSize, 10, bSize);
-        } else {
-          ctx.arc(10, 0, bSize, -Math.PI/2, Math.PI/2);
+        
+        // Custom Bow Shapes
+        if (isCommonW || isUncommonW) {
+          ctx.lineWidth = isUncommonW ? 4 : 3;
+          ctx.beginPath();
+          ctx.arc(10, 0, bSize, -Math.PI/2 * 0.9, Math.PI/2 * 0.9);
+          ctx.stroke();
+          
+          if (isUncommonW) {
+             // Leaves/spikes
+             ctx.fillStyle = '#22c55e';
+             ctx.beginPath(); ctx.moveTo(10, -bSize); ctx.lineTo(20, -bSize+10); ctx.lineTo(10, -bSize+20); ctx.fill();
+             ctx.beginPath(); ctx.moveTo(10, bSize); ctx.lineTo(20, bSize-10); ctx.lineTo(10, bSize-20); ctx.fill();
+          }
+        } 
+        else if (isRareW) {
+          ctx.lineWidth = 5;
+          ctx.shadowBlur = 10; ctx.shadowColor = '#60a5fa';
+          ctx.beginPath();
+          ctx.moveTo(10, -bSize);
+          ctx.quadraticCurveTo(40, -bSize/2, 20, 0);
+          ctx.quadraticCurveTo(40, bSize/2, 10, bSize);
+          ctx.stroke();
+          // Ice spikes
+          ctx.fillStyle = '#bfdbfe';
+          ctx.beginPath(); ctx.moveTo(25, -bSize/3); ctx.lineTo(40, -bSize/3 + 10); ctx.lineTo(20, -bSize/3 + 20); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(25, bSize/3); ctx.lineTo(40, bSize/3 - 10); ctx.lineTo(20, bSize/3 - 20); ctx.fill();
+          ctx.shadowBlur = 0;
         }
+        else if (isEpicW) {
+          ctx.lineWidth = 6;
+          ctx.shadowBlur = 15; ctx.shadowColor = '#d8b4fe';
+          ctx.beginPath();
+          ctx.moveTo(10, -bSize);
+          ctx.bezierCurveTo(45, -bSize*0.8, 55, -10, 10, 0);
+          ctx.bezierCurveTo(55, 10, 45, bSize*0.8, 10, bSize);
+          ctx.stroke();
+          // Dark crystals
+          ctx.fillStyle = '#a855f7';
+          ctx.fillRect(8, -bSize, 4, 15); ctx.fillRect(8, bSize-15, 4, 15);
+          ctx.shadowBlur = 0;
+        }
+        else if (isLegendaryW) {
+          ctx.lineWidth = 8;
+          ctx.shadowBlur = 20; ctx.shadowColor = '#fde047';
+          ctx.strokeStyle = '#fef08a';
+          ctx.beginPath();
+          ctx.moveTo(10, -bSize);
+          ctx.bezierCurveTo(60, -bSize*0.9, 70, -20, 15, 0);
+          ctx.bezierCurveTo(70, 20, 60, bSize*0.9, 10, bSize);
+          ctx.stroke();
+          
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = '#eab308';
+          ctx.stroke(); // inner line
+          
+          // Ornaments
+          ctx.fillStyle = '#fde047';
+          ctx.beginPath(); ctx.moveTo(20, -bSize/2); ctx.lineTo(40, -bSize/2); ctx.lineTo(30, -bSize/2 + 20); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(20, bSize/2); ctx.lineTo(40, bSize/2); ctx.lineTo(30, bSize/2 - 20); ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+        else if (isMythicW) {
+          ctx.lineWidth = 10;
+          ctx.shadowBlur = 25; ctx.shadowColor = '#ef4444';
+          ctx.strokeStyle = '#7f1d1d';
+          ctx.beginPath();
+          ctx.moveTo(10, -bSize);
+          ctx.bezierCurveTo(65, -bSize, 80, -bSize/2, 10, 0);
+          ctx.bezierCurveTo(80, bSize/2, 65, bSize, 10, bSize);
+          ctx.stroke();
+          
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = '#ef4444';
+          ctx.beginPath();
+          ctx.moveTo(8, -bSize+2); ctx.bezierCurveTo(60, -bSize+2, 70, -bSize/2, 10, 0);
+          ctx.bezierCurveTo(70, bSize/2, 60, bSize-2, 8, bSize-2);
+          ctx.stroke(); // inner fiery line
+
+          ctx.fillStyle = '#fca5a5';
+          for(let i=0; i<3; i++) {
+             ctx.beginPath(); ctx.moveTo(25+i*10, -bSize/2+i*10); ctx.lineTo(45+i*10, -bSize/2+i*5); ctx.lineTo(35+i*10, -bSize/2+20+i*5); ctx.fill();
+             ctx.beginPath(); ctx.moveTo(25+i*10, bSize/2-i*10); ctx.lineTo(45+i*10, bSize/2-i*5); ctx.lineTo(35+i*10, bSize/2-20-i*5); ctx.fill();
+          }
+          ctx.shadowBlur = 0;
+        }
+        else if (isUltraW) {
+          ctx.save();
+          ctx.rotate(-time * 0.003);
+          ctx.strokeStyle = 'rgba(236, 72, 153, 0.4)';
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.ellipse(40, 0, bSize, 20, 0, 0, Math.PI*2); ctx.stroke();
+          ctx.rotate(Math.PI/2);
+          ctx.strokeStyle = 'rgba(45, 212, 191, 0.4)';
+          ctx.beginPath(); ctx.ellipse(40, 0, bSize, 20, 0, 0, Math.PI*2); ctx.stroke();
+          ctx.restore();
+
+          ctx.lineWidth = 12;
+          ctx.shadowBlur = 30; ctx.shadowColor = '#a855f7';
+          const grad = ctx.createLinearGradient(10, -bSize, 10, bSize);
+          grad.addColorStop(0, '#2dd4bf'); grad.addColorStop(0.3, '#3b82f6'); grad.addColorStop(0.7, '#a855f7'); grad.addColorStop(1, '#f43f5e');
+          ctx.strokeStyle = grad;
+          ctx.beginPath();
+          ctx.moveTo(10, -bSize);
+          ctx.bezierCurveTo(80, -bSize, 100, -bSize/3, 10, 0);
+          ctx.bezierCurveTo(100, bSize/3, 80, bSize, 10, bSize);
+          ctx.stroke();
+          
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#ffffff';
+          ctx.stroke(); // inner white core
+          ctx.shadowBlur = 0;
+        }
+        
+        // Bow string
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.lineWidth = isUltraW ? 2 : 1;
+        ctx.beginPath(); 
+        const yOffset = (isCommonW || isUncommonW) ? bSize * 0.9 : bSize;
+        ctx.moveTo(10, -yOffset); 
+        ctx.lineTo(8, -yOffset/2); ctx.lineTo(5, 0); ctx.lineTo(8, yOffset/2); 
+        ctx.lineTo(10, yOffset); 
         ctx.stroke();
         
-        // String
-        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(10, -bSize); ctx.lineTo(10, bSize); ctx.stroke();
-        
-        // Pulsing Gem in middle
-        if (isUltraW || isMythicW) {
-           ctx.fillStyle = wpColor;
-           ctx.beginPath(); ctx.arc(25, 0, 6, 0, Math.PI*2); ctx.fill();
+        // Glowing gems in middle
+        if (isEpicW || isLegendaryW || isMythicW || isUltraW) {
+           ctx.shadowBlur = 15; ctx.shadowColor = wpColor;
+           ctx.fillStyle = isUltraW ? '#ffffff' : wpColor;
+           ctx.beginPath(); 
+           ctx.moveTo(25, 0); ctx.lineTo(15, -10); ctx.lineTo(5, 0); ctx.lineTo(15, 10);
+           ctx.fill();
+           ctx.shadowBlur = 0;
         }
+        ctx.restore();
+
       } else if (wIcon === 'staff') {
-        ctx.fillStyle = isUltraW ? '#0f172a' : '#78350f';
-        const staffLen = isUltraW ? 100 : 75;
-        ctx.fillRect(0, -3, staffLen, 6);
-        
         ctx.save();
+        
+        let staffLen = 35;
+        if (isUncommonW) staffLen = 40;
+        if (isRareW) staffLen = 48;
+        if (isEpicW) staffLen = 55;
+        if (isLegendaryW) staffLen = 65;
+        if (isMythicW) staffLen = 75;
+        if (isUltraW) staffLen = 85;
+
+        // Base rod
+        ctx.fillStyle = (isRareW || isEpicW || isLegendaryW || isMythicW || isUltraW) ? '#0f172a' : '#451a03';
+        ctx.fillRect(-10, -3, staffLen + 10, 6);
+        
+        // Rod wrap
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < staffLen; i += 10) {
+           ctx.beginPath(); ctx.moveTo(i, -3); ctx.lineTo(i+5, 3); ctx.stroke();
+        }
+
         ctx.translate(staffLen + 5, 0);
-        ctx.rotate(time * 0.005);
         ctx.fillStyle = wpColor;
         
-        if (isMythicW || isUltraW) {
-          // Floating bits
-          for(let i=0; i<4; i++) {
-            ctx.rotate(Math.PI/2);
-            ctx.fillRect(15, -4, 12, 8);
-          }
+        // Head / Crystal Design
+        if (isCommonW) {
+          ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(10, 0); ctx.lineTo(0, 10); ctx.lineTo(-10, 0); ctx.fill();
+          // Simple crescent
+          ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(0, 0, 15, -Math.PI/2, Math.PI/2); ctx.stroke();
         }
-        
-        // Staff Head
-        ctx.beginPath();
-        ctx.arc(0, 0, isUltraW ? 18 : 12, 0, Math.PI*2);
-        ctx.fill();
-        
-        // Core glow
-        ctx.fillStyle = '#fff';
-        ctx.beginPath(); ctx.arc(0, 0, isUltraW ? 8 : 5, 0, Math.PI*2); ctx.fill();
-        
+        else if (isUncommonW) {
+          // Wrapped leaves
+          ctx.fillStyle = '#22c55e';
+          ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(12, 0); ctx.lineTo(0, 15); ctx.lineTo(-12, 0); ctx.fill();
+          ctx.strokeStyle = '#14532d'; ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.moveTo(-15, 0); ctx.quadraticCurveTo(5, -20, 20, -5); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(-15, 0); ctx.quadraticCurveTo(5, 20, 20, 5); ctx.stroke();
+        }
+        else if (isRareW) {
+          // Ice crescent
+          ctx.shadowBlur = 10; ctx.shadowColor = '#60a5fa';
+          ctx.fillStyle = '#bfdbfe';
+          ctx.beginPath(); ctx.moveTo(0, -18); ctx.lineTo(15, 0); ctx.lineTo(0, 18); ctx.lineTo(-15, 0); ctx.fill();
+          ctx.fillStyle = '#2563eb';
+          ctx.beginPath();
+          ctx.moveTo(-10, 25); ctx.quadraticCurveTo(20, 0, -10, -25);
+          ctx.quadraticCurveTo(35, 0, -10, 25); ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+        else if (isEpicW) {
+          // Floating crystal & dark claws
+          ctx.rotate(time * 0.002);
+          ctx.shadowBlur = 15; ctx.shadowColor = '#d8b4fe';
+          ctx.fillStyle = '#e9d5ff';
+          ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(15, 0); ctx.lineTo(0, 22); ctx.lineTo(-15, 0); ctx.fill();
+          ctx.rotate(-time * 0.002);
+
+          ctx.fillStyle = '#581c87';
+          // Top claw
+          ctx.beginPath(); ctx.moveTo(-10, -30); ctx.quadraticCurveTo(25, -20, 10, -5); ctx.quadraticCurveTo(35, -30, -10, -30); ctx.fill();
+          // Bottom claw
+          ctx.beginPath(); ctx.moveTo(-10, 30); ctx.quadraticCurveTo(25, 20, 10, 5); ctx.quadraticCurveTo(35, 30, -10, 30); ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+        else if (isLegendaryW) {
+          // Sun rings and huge gem
+          ctx.rotate(time * 0.001);
+          ctx.shadowBlur = 20; ctx.shadowColor = '#fde047';
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath(); ctx.moveTo(0, -25); ctx.lineTo(18, 0); ctx.lineTo(0, 25); ctx.lineTo(-18, 0); ctx.fill();
+          
+          ctx.fillStyle = '#ca8a04';
+          for (let i = 0; i < 4; i++) {
+             ctx.beginPath(); ctx.moveTo(25, -5); ctx.lineTo(40, 0); ctx.lineTo(25, 5); ctx.fill();
+             ctx.rotate(Math.PI/2);
+          }
+          ctx.strokeStyle = '#fef08a'; ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI*2); ctx.stroke();
+          ctx.shadowBlur = 0;
+        }
+        else if (isMythicW) {
+          // Fiery twisting head
+          ctx.shadowBlur = 25; ctx.shadowColor = '#ef4444';
+          ctx.fillStyle = '#fca5a5';
+          ctx.beginPath(); ctx.moveTo(0, -30); ctx.lineTo(20, 0); ctx.lineTo(0, 30); ctx.lineTo(-20, 0); ctx.fill();
+          
+          ctx.fillStyle = '#7f1d1d';
+          for(let i=0; i<3; i++) {
+             ctx.beginPath(); 
+             ctx.moveTo(-15, 0); ctx.bezierCurveTo(40, -40, 10, 30, 35, 0);
+             ctx.bezierCurveTo(15, 50, 45, -20, -15, 0); ctx.fill();
+             ctx.rotate(Math.PI * 2 / 3);
+          }
+          // Extra floating red sparks
+          ctx.rotate(time * 0.005);
+          ctx.fillStyle = '#ef4444';
+          for (let i=0; i<6; i++) {
+             ctx.beginPath(); ctx.arc(35, 0, 4, 0, Math.PI*2); ctx.fill();
+             ctx.rotate(Math.PI / 3);
+          }
+          ctx.shadowBlur = 0;
+        }
+        else if (isUltraW) {
+          // Rainbow floating orb with massive aura rings
+          ctx.rotate(-time * 0.003);
+          // Sparkle rings
+          ctx.strokeStyle = 'rgba(236, 72, 153, 0.5)'; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.ellipse(0, 0, 50, 20, 0, 0, Math.PI*2); ctx.stroke();
+          ctx.rotate(Math.PI/3);
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
+          ctx.beginPath(); ctx.ellipse(0, 0, 50, 20, 0, 0, Math.PI*2); ctx.stroke();
+          ctx.rotate(Math.PI/3);
+          ctx.strokeStyle = 'rgba(168, 85, 247, 0.5)';
+          ctx.beginPath(); ctx.ellipse(0, 0, 50, 20, 0, 0, Math.PI*2); ctx.stroke();
+          
+          ctx.shadowBlur = 30; ctx.shadowColor = '#a855f7';
+          // Multi-layer crystal
+          const grad = ctx.createLinearGradient(-20, -35, 20, 35);
+          grad.addColorStop(0, '#2dd4bf'); grad.addColorStop(0.5, '#a855f7'); grad.addColorStop(1, '#f43f5e');
+          ctx.fillStyle = grad;
+          ctx.beginPath(); ctx.moveTo(0, -35); ctx.lineTo(25, 0); ctx.lineTo(0, 35); ctx.lineTo(-25, 0); ctx.fill();
+          
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(10, 0); ctx.lineTo(0, 15); ctx.lineTo(-10, 0); ctx.fill();
+          
+          // Surrounding golden abstract shapes
+          ctx.strokeStyle = '#fef08a'; ctx.lineWidth = 4;
+          for (let i=0; i<2; i++) {
+             ctx.beginPath();
+             ctx.moveTo(-30, -30); ctx.bezierCurveTo(20, -50, 50, 20, 30, 30); ctx.stroke();
+             ctx.rotate(Math.PI);
+          }
+          ctx.shadowBlur = 0;
+        }
+
         ctx.restore();
       } else {
-        // Melee Blade (SWORD)
-        const bLen = isUltraW ? 120 : isMythicW ? 95 : isLegendaryW ? 75 : 60;
-        const bWid = isUltraW ? 14 : isMythicW ? 11 : 6;
+        // Melee Blade (SWORD) - Custom per Rarity
+        ctx.save();
         
-        const grad = ctx.createLinearGradient(0, 0, bLen, 0);
-        grad.addColorStop(0, isUltraW ? '#4c1d95' : '#475569');
-        grad.addColorStop(0.5, wpColor);
-        grad.addColorStop(1, '#fff');
-        
-        ctx.fillStyle = grad;
+        let bLen = 40;
+        if (isUncommonW) bLen = 48;
+        if (isRareW) bLen = 55;
+        if (isEpicW) bLen = 65;
+        if (isLegendaryW) bLen = 75;
+        if (isMythicW) bLen = 88;
+        if (isUltraW) bLen = 100;
+
+        // --- Handle ---
+        ctx.fillStyle = '#1e293b'; 
+        if (isLegendaryW) ctx.fillStyle = '#b45309';
+        if (isMythicW) ctx.fillStyle = '#450a0a';
+        if (isUltraW) ctx.fillStyle = '#a855f7';
+        // handle wrap
+        ctx.fillRect(-22, -3, 22, 6);
+        // Pommel
+        ctx.fillStyle = wpColor;
         ctx.beginPath();
-        ctx.moveTo(0, -bWid); 
-        
-        // Serrated / Fancy edge for high tier
-        if (isMythicW || isUltraW) {
-          for(let i=0; i<bLen-20; i+=15) { 
-            ctx.lineTo(i+8, -bWid-6); 
-            ctx.lineTo(i+15, -bWid); 
-          }
+        if (isEpicW || isLegendaryW || isMythicW || isUltraW) {
+          ctx.moveTo(-22, 0); ctx.lineTo(-27, -5); ctx.lineTo(-32, 0); ctx.lineTo(-27, 5); ctx.fill();
+        } else {
+          ctx.arc(-22, 0, 4, 0, Math.PI*2); ctx.fill();
+        }
+
+        // --- Blade & Crossguard ---
+        if (isCommonW) {
+          // Gray blade, simple
+          ctx.fillStyle = '#94a3b8';
+          ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(bLen, 0); ctx.lineTo(0, 5); ctx.fill();
+          // Crossguard
+          ctx.fillStyle = '#64748b';
+          ctx.beginPath(); ctx.moveTo(-5, -15); ctx.lineTo(5, -15); ctx.lineTo(5, 15); ctx.lineTo(-5, 15); ctx.fill();
+        } 
+        else if (isUncommonW) {
+          // Green, wide base, simple guard
+          ctx.fillStyle = '#4ade80';
+          ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(15, -6); ctx.lineTo(bLen, 0); ctx.lineTo(15, 6); ctx.lineTo(0, 8); ctx.fill();
+          // Inner core
+          ctx.fillStyle = '#86efac';
+          ctx.beginPath(); ctx.moveTo(0, -4); ctx.lineTo(bLen - 5, 0); ctx.lineTo(0, 4); ctx.fill();
+          // Guard
+          ctx.fillStyle = '#22c55e';
+          ctx.beginPath(); ctx.moveTo(-5, -20); ctx.lineTo(5, -20); ctx.lineTo(8, -10); ctx.lineTo(8, 10); ctx.lineTo(5, 20); ctx.lineTo(-5, 20); ctx.fill();
+        }
+        else if (isRareW) {
+          // Blue, complex guard, thicker blade
+          const grad = ctx.createLinearGradient(0, 0, bLen, 0);
+          grad.addColorStop(0, '#3b82f6'); grad.addColorStop(1, '#93c5fd');
+          ctx.fillStyle = grad;
+          ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(20, -10); ctx.lineTo(bLen, 0); ctx.lineTo(20, 10); ctx.lineTo(0, 10); ctx.fill();
+          ctx.fillStyle = '#bfdbfe';
+          ctx.beginPath(); ctx.moveTo(0, -3); ctx.lineTo(bLen - 8, 0); ctx.lineTo(0, 3); ctx.fill();
+          // Guard
+          ctx.fillStyle = '#2563eb';
+          ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(10, -25); ctx.lineTo(-5, -25); ctx.lineTo(-10, -15);
+          ctx.lineTo(-10, 15); ctx.lineTo(-5, 25); ctx.lineTo(10, 25); ctx.fill();
+        }
+        else if (isEpicW) {
+          // Purple, evil curvy guard, magical
+          ctx.shadowBlur = 10; ctx.shadowColor = '#d8b4fe';
+          const grad = ctx.createLinearGradient(0, 0, bLen, 0);
+          grad.addColorStop(0, '#9333ea'); grad.addColorStop(1, '#f3e8ff');
+          ctx.fillStyle = grad;
+          ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(25, -12); ctx.lineTo(bLen, 0); ctx.lineTo(25, 12); ctx.lineTo(0, 12); ctx.fill();
+          // Inner core
+          ctx.fillStyle = '#e9d5ff';
+          ctx.beginPath(); ctx.moveTo(0, -4); ctx.lineTo(bLen - 15, 0); ctx.lineTo(0, 4); ctx.fill();
+          ctx.shadowBlur = 0;
+          // Guard
+          ctx.fillStyle = '#7e22ce';
+          ctx.beginPath(); ctx.moveTo(0, 0); 
+          ctx.bezierCurveTo(15, -15, 20, -30, 0, -35); ctx.lineTo(-5, -20);
+          ctx.lineTo(-10, 0); ctx.lineTo(-5, 20); ctx.lineTo(0, 35);
+          ctx.bezierCurveTo(20, 30, 15, 15, 0, 0); ctx.fill();
+          // Gem
+          ctx.fillStyle = '#f3e8ff'; ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI*2); ctx.fill();
+        }
+        else if (isLegendaryW) {
+          // Gold, wide flared guard, glowing
+          ctx.shadowBlur = 15; ctx.shadowColor = '#fde047';
+          const grad = ctx.createLinearGradient(0, 0, bLen, 0);
+          grad.addColorStop(0, '#ca8a04'); grad.addColorStop(0.5, '#fef08a'); grad.addColorStop(1, '#ffffff');
+          ctx.fillStyle = grad;
+          ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(30, -10); ctx.lineTo(bLen, 0); ctx.lineTo(30, 10); ctx.lineTo(0, 15); ctx.fill();
+          ctx.shadowBlur = 0;
+          // Guard
+          ctx.fillStyle = '#eab308';
+          ctx.beginPath(); ctx.moveTo(5, 0); ctx.lineTo(20, -35); ctx.lineTo(0, -30); ctx.lineTo(-10, -20);
+          ctx.lineTo(-10, 20); ctx.lineTo(0, 30); ctx.lineTo(20, 35); ctx.fill();
+          ctx.fillStyle = '#fef08a'; ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(10, 0); ctx.lineTo(0, 10); ctx.lineTo(-10, 0); ctx.fill();
+        }
+        else if (isMythicW) {
+          // Red/Fiery, serrated, dark core
+          ctx.shadowBlur = 20; ctx.shadowColor = '#ef4444';
+          const grad = ctx.createLinearGradient(0, -15, 0, 15);
+          grad.addColorStop(0, '#f87171'); grad.addColorStop(0.5, '#450a0a'); grad.addColorStop(1, '#f87171');
+          ctx.fillStyle = grad;
+          ctx.beginPath(); ctx.moveTo(0, -14); 
+          for(let i=0; i<bLen-20; i+=15) { ctx.lineTo(i+8, -16); ctx.lineTo(i+15, -10); }
+          ctx.lineTo(bLen, 0); 
+          for(let i=bLen-20; i>=0; i-=15) { ctx.lineTo(i+8, 16); ctx.lineTo(i, 10); }
+          ctx.fill();
+          // Inner core bright red
+          ctx.fillStyle = '#ef4444';
+          ctx.beginPath(); ctx.moveTo(0, -2); ctx.lineTo(bLen-15, 0); ctx.lineTo(0, 2); ctx.fill();
+          ctx.shadowBlur = 0;
+          // Guard
+          ctx.fillStyle = '#7f1d1d';
+          ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(25, -40); ctx.lineTo(-5, -25); ctx.lineTo(-15, -15);
+          ctx.lineTo(-15, 15); ctx.lineTo(-5, 25); ctx.lineTo(25, 40); ctx.fill();
+          ctx.fillStyle = '#fca5a5'; ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(8, 0); ctx.lineTo(0, 8); ctx.lineTo(-8, 0); ctx.fill();
+        }
+        else if (isUltraW) {
+          // Ultra Rainbow sword, glowing white center
+          // Sparkle aura rings
+          ctx.save();
+          ctx.rotate(-time * 0.002);
+          ctx.strokeStyle = 'rgba(168, 85, 247, 0.4)';
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.arc(bLen/2, 0, 40, 0, Math.PI*2); ctx.stroke();
+          ctx.rotate(Math.PI/3);
+          ctx.strokeStyle = 'rgba(45, 212, 191, 0.4)';
+          ctx.beginPath(); ctx.ellipse(bLen/2 * 0.8, 0, 50, 15, 0, 0, Math.PI*2); ctx.stroke();
+          ctx.rotate(Math.PI/3);
+          ctx.strokeStyle = 'rgba(236, 72, 153, 0.4)';
+          ctx.beginPath(); ctx.ellipse(bLen/2 * 0.8, 0, 50, 15, 0, 0, Math.PI*2); ctx.stroke();
+          ctx.restore();
+          
+          ctx.shadowBlur = 25; ctx.shadowColor = '#a855f7';
+          // Outline layer
+          ctx.fillStyle = '#c084fc'; // purple outer edge
+          ctx.beginPath(); ctx.moveTo(0, -18); ctx.lineTo(35, -14); ctx.lineTo(bLen, 0); ctx.lineTo(35, 14); ctx.lineTo(0, 18); ctx.fill();
+          // Inner rainbow layer
+          const grad = ctx.createLinearGradient(0, 0, bLen, 0);
+          grad.addColorStop(0, '#2dd4bf'); grad.addColorStop(0.3, '#3b82f6'); grad.addColorStop(0.6, '#a855f7'); grad.addColorStop(1, '#f43f5e');
+          ctx.fillStyle = grad;
+          ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(30, -10); ctx.lineTo(bLen-5, 0); ctx.lineTo(30, 10); ctx.lineTo(0, 12); ctx.fill();
+          // Pure white core
+          ctx.shadowColor = '#ffffff';
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath(); ctx.moveTo(0, -4); ctx.lineTo(bLen-15, 0); ctx.lineTo(0, 4); ctx.fill();
+          
+          ctx.shadowBlur = 0;
+          
+          // Epic Guard
+          ctx.fillStyle = '#5b21b6'; // dark purple
+          ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(30, -45); ctx.lineTo(-10, -30); ctx.lineTo(-20, -15);
+          ctx.lineTo(-20, 15); ctx.lineTo(-10, 30); ctx.lineTo(30, 45); ctx.fill();
+          
+          // Guard inner trim
+          ctx.fillStyle = '#d8b4fe';
+          ctx.beginPath(); ctx.moveTo(5, 0); ctx.lineTo(15, -30); ctx.lineTo(-5, -20); ctx.lineTo(-10, -10);
+          ctx.lineTo(-10, 10); ctx.lineTo(-5, 20); ctx.lineTo(15, 30); ctx.fill();
+          
+          // Giant Gem
+          ctx.shadowBlur = 10; ctx.shadowColor = '#2dd4bf';
+          ctx.fillStyle = '#ccfbf1'; ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(12, 0); ctx.lineTo(0, 12); ctx.lineTo(-12, 0); ctx.fill();
+          ctx.shadowBlur = 0;
         }
         
-        ctx.lineTo(bLen, 0); 
-        
-        if (isMythicW || isUltraW) {
-          for(let i=bLen-20; i>=0; i-=15) { 
-            ctx.lineTo(i+8, bWid+6); 
-            ctx.lineTo(i, bWid); 
-          }
-        } else { 
-          ctx.lineTo(0, bWid); 
-        }
-        
-        ctx.closePath();
-        ctx.fill();
-        
-        // Blade center line
-        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(5, 0); ctx.lineTo(bLen - 10, 0); ctx.stroke();
-        
-        // Crossguard
-        ctx.fillStyle = isUltraW ? '#5b21b6' : isMythicW ? '#7f1d1d' : '#1e293b';
-        ctx.fillRect(0, -20, 8, 40);
-        
-        // Hilt Jewel
-        if (isUltraW || isMythicW) {
-           ctx.fillStyle = wpColor;
-           ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI*2); ctx.fill();
-        }
+        ctx.restore();
       }
       ctx.restore();
     }
