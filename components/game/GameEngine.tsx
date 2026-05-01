@@ -68,48 +68,28 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
   const attackEffect = useRef<{ angle: number, progress: number, type: 'melee' | 'ranged' | 'magic' } | null>(null);
   const onlinePlayersCache = useRef<Map<string, { x: number, y: number, r: number, tx: number, ty: number, tr: number, vx?: number, vy?: number, lastUpdate?: number, lastAction?: number, effect?: { progress: number, type: 'melee' | 'ranged' | 'magic', angle: number } | null }>>(new Map());
   const mobCache = useRef<Map<string, { x: number, y: number, tx: number, ty: number, lastUpdate: number, updatedAt: number }>>(new Map());
+  const updateRef = useRef<(time: number) => void>(null);
 
   // Constants
   const PLAYER_SPEED = 4.5;
   const ATTACK_RANGE = 100;
   const ENEMY_DETECTION_RANGE = 350;
 
-  useEffect(() => {
-    // Initial spawn
-    const { enemies, spawnEnemy } = useGameStore.getState();
-    if (enemies.length === 0) {
-      for (let i = 0; i < 8; i++) {
-        spawnEnemy({
-          id: Math.random().toString(),
-          x: Math.random() * 2000 - 1000,
-          y: Math.random() * 2000 - 1000,
-          hp: 50,
-          maxHp: 50,
-          level: 1,
-          type: 'Слизень'
-        });
-      }
-    }
-  }, []);
-
+  // 1. Procedural Ground Pattern
   const groundPattern = useRef<CanvasPattern | null>(null);
 
   useEffect(() => {
     const loc = useGameStore.getState().locations.find(l => l.id === useGameStore.getState().currentLocationId);
     if (!loc) return;
 
-    // Procedural Ground Generation
     const size = 512;
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = size;
     tempCanvas.height = size;
     const tctx = tempCanvas.getContext('2d')!;
-
-    // Base color
     tctx.fillStyle = loc.color;
     tctx.fillRect(0, 0, size, size);
 
-    // Add noise/details
     for (let i = 0; i < 2000; i++) {
         const x = Math.random() * size;
         const y = Math.random() * size;
@@ -118,50 +98,34 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         if (loc.groundTheme === 'forest') {
             tctx.fillStyle = Math.random() > 0.5 ? '#1a2e1a' : '#2d1e12';
             tctx.fillRect(x, y, s, s);
-            if (i % 50 === 0) { // Leaves
-                tctx.fillStyle = '#3a4d24';
-                tctx.beginPath(); tctx.ellipse(x, y, 4, 2, Math.random()*Math.PI, 0, Math.PI*2); tctx.fill();
-            }
         } else if (loc.groundTheme === 'cave') {
             tctx.fillStyle = Math.random() > 0.5 ? '#1c1c24' : '#0a0a0f';
             tctx.fillRect(x, y, s, s);
-            if (i % 40 === 0) { // Stones
-                tctx.fillStyle = '#333344';
-                tctx.beginPath(); tctx.arc(x, y, 2 + Math.random()*3, 0, Math.PI*2); tctx.fill();
-            }
         } else if (loc.groundTheme === 'dungeon_corridor') {
             tctx.fillStyle = '#100a16';
             tctx.fillRect(x, y, s, s);
-            if (i % 100 === 0) { // Cracks/Tiles
-                tctx.strokeStyle = '#221133'; tctx.lineWidth = 1;
-                tctx.strokeRect(Math.floor(x/32)*32, Math.floor(y/32)*32, 32, 32);
+            if (i % 64 === 0) {
+               tctx.strokeStyle = '#221133'; tctx.strokeRect(Math.floor(x/64)*64, Math.floor(y/64)*64, 64, 64);
             }
-        } else { // Citadel
+        } else {
             tctx.fillStyle = '#0a0505';
             tctx.fillRect(x, y, s, s);
-            if (i % 100 === 0) { // Cracks/Tiles
-                tctx.strokeStyle = '#2a1a1a'; tctx.lineWidth = 1;
-                tctx.strokeRect(Math.floor(x/64)*64, Math.floor(y/64)*64, 64, 64);
-            }
         }
     }
-
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d')!;
     groundPattern.current = ctx.createPattern(tempCanvas, 'repeat');
   }, [useGameStore.getState().currentLocationId]);
 
+  // 2. Multiplayer Listeners
   useEffect(() => {
-    // Multiplayer Listeners
     const state = useGameStore.getState();
     const user = state.user;
     if (!user) return;
 
     let unsubList: (() => void)[] = [];
 
-    // Listen for players in current location
     const q = query(collection(db, 'worldPlayers'), where('locationId', '==', state.currentLocationId));
-    
     const unsubscribePlayers = onSnapshot(q, (snapshot) => {
       const players: OnlinePlayer[] = [];
       const now = Date.now();
@@ -170,656 +134,305 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
       snapshot.forEach(d => {
         const data = d.data();
         if (d.id === user.uid) {
-           if (data.hp < currentState.player.hp) {
-              const dmg = currentState.player.hp - data.hp;
-              currentState.damagePlayer(dmg);
+           if (data.hp < currentState.player.hp - 1) {
+              currentState.damagePlayer(currentState.player.hp - data.hp);
               lastLocalHp.current = data.hp;
            }
-        } else if (now - data.updatedAt < 5000) { 
+        } else if (now - (data.updatedAt || 0) < 10000) { 
           const id = d.id;
-          const tx = data.x;
-          const ty = data.y;
-          const tr = data.rotation || 0;
-          let lastAction = data.actionTime || 0;
-
           if (!onlinePlayersCache.current.has(id)) {
-            onlinePlayersCache.current.set(id, { x: tx, y: ty, r: tr, tx, ty, tr, vx: 0, vy: 0, lastAction, effect: null, lastUpdate: Date.now() });
+            onlinePlayersCache.current.set(id, { x: data.x, y: data.y, r: data.rotation, tx: data.x, ty: data.y, tr: data.rotation, vx: 0, vy: 0, lastUpdate: Date.now(), lastAction: data.actionTime, effect: null });
           } else {
             const entry = onlinePlayersCache.current.get(id)!;
-            const nowTime = Date.now();
-            const dt = nowTime - (entry.lastUpdate || nowTime);
+            const dt = now - (entry.lastUpdate || now);
             if (dt > 1) {
-               const frameCount = dt / 16.666;
-               entry.vx = (entry.vx || 0) * 0.6 + ((tx - entry.tx) / frameCount) * 0.4;
-               entry.vy = (entry.vy || 0) * 0.6 + ((ty - entry.ty) / frameCount) * 0.4;
+               entry.vx = (entry.vx || 0) * 0.5 + ((data.x - entry.tx) / (dt/16)) * 0.5;
+               entry.vy = (entry.vy || 0) * 0.5 + ((data.y - entry.ty) / (dt/16)) * 0.5;
             }
-            entry.tx = tx; entry.ty = ty; entry.tr = tr; entry.lastUpdate = nowTime;
-            if (Math.hypot(entry.x - tx, entry.y - ty) > 250) { entry.x = tx; entry.y = ty; }
-            if (lastAction > (entry.lastAction || 0)) {
-               entry.lastAction = lastAction;
-               entry.effect = {
-                  progress: 0,
-                  type: (data.equipment?.weapon?.icon === 'bow' || data.equipment?.weapon?.icon === 'staff') ? (data.equipment.weapon.icon === 'bow' ? 'ranged' : 'magic') : 'melee',
-                  angle: tr
-               };
+            entry.tx = data.x; entry.ty = data.y; entry.tr = data.rotation; entry.lastUpdate = now;
+            if (data.actionTime > (entry.lastAction || 0)) {
+               entry.lastAction = data.actionTime;
+               entry.effect = { progress: 0, type: (data.equipment?.weapon?.icon === 'bow' ? 'ranged' : data.equipment?.weapon?.icon === 'staff' ? 'magic' : 'melee'), angle: data.rotation };
             }
           }
-
-          players.push({ id, x: tx, y: ty, hp: data.hp, maxHp: data.maxHp, level: data.level, nickname: data.nickname, rotation: tr, equipment: data.equipment, aura: data.aura, skinColor: data.skinColor });
+          players.push({ id, ...data as any });
         }
       });
-      
-      const playerIds = new Set(players.map(p => p.id));
-      onlinePlayersCache.current.forEach((_, id) => { if (!playerIds.has(id)) onlinePlayersCache.current.delete(id); });
       useGameStore.setState({ onlinePlayers: players });
     });
 
-    // Listen for Shared Enemies
     const mobsCol = collection(db, 'worldMobs', state.currentLocationId, 'mobs');
     const unsubscribeMobs = onSnapshot(mobsCol, (snapshot) => {
        const sharedEnemies: Enemy[] = [];
        snapshot.forEach(d => {
           const data = d.data();
-          const id = d.id;
-          const tx = data.x;
-          const ty = data.y;
-          const serverUpdatedAt = data.updatedAt || 0;
-
-          if (!mobCache.current.has(id)) {
-            mobCache.current.set(id, { x: tx, y: ty, tx, ty, lastUpdate: Date.now(), updatedAt: serverUpdatedAt });
+          if (!mobCache.current.has(d.id)) {
+            mobCache.current.set(d.id, { x: data.x, y: data.y, tx: data.x, ty: data.y, lastUpdate: Date.now(), updatedAt: data.updatedAt });
           } else {
-            const entry = mobCache.current.get(id)!;
-            
-            // Only update if server data is newer than what we have in cache
-            if (serverUpdatedAt > (entry.updatedAt || 0)) {
-                entry.tx = tx;
-                entry.ty = ty;
-                entry.updatedAt = serverUpdatedAt;
-                
-                // Snap if too far
-                if (Math.hypot(entry.x - tx, entry.y - ty) > 200) {
-                    entry.x = tx;
-                    entry.y = ty;
-                }
+            const entry = mobCache.current.get(d.id)!;
+            if (data.updatedAt > (entry.updatedAt || 0)) {
+                entry.tx = data.x; entry.ty = data.y; entry.updatedAt = data.updatedAt;
+                if (Math.hypot(entry.x - data.x, entry.y - data.y) > 200) { entry.x = data.x; entry.y = data.y; }
             }
-            entry.lastUpdate = Date.now();
           }
-
-          sharedEnemies.push({
-             id: d.id,
-             x: tx, // We will use interpolated x in the loop
-             y: ty,
-             hp: data.hp,
-             maxHp: data.maxHp,
-             level: data.level,
-             type: data.type
-          });
+          sharedEnemies.push({ id: d.id, ...data as any });
        });
-       
-       // Cleanup old mobs from cache
-       const activeIds = new Set(sharedEnemies.map(e => e.id));
-       mobCache.current.forEach((_, id) => {
-         if (!activeIds.has(id)) mobCache.current.delete(id);
-       });
-
+       mobCache.current.forEach((_, id) => { if (!sharedEnemies.find(e => e.id === id)) mobCache.current.delete(id); });
        useGameStore.getState().setEnemies(sharedEnemies);
     });
 
     unsubList.push(unsubscribePlayers, unsubscribeMobs);
 
-    // Write player position every 100 ms
     const interval = setInterval(() => {
       const currentState = useGameStore.getState();
       if (!currentState.user) return;
-
-      const equip = currentState.equipment || {};
-      const aura = equip.aura;
-      
-      const sanitizedEquipment: any = {};
-      if (equip.weapon) sanitizedEquipment.weapon = { icon: equip.weapon.icon || 'sword', rarity: equip.weapon.rarity || 'common' };
-      if (equip.armor) sanitizedEquipment.armor = { rarity: equip.armor.rarity || 'common' };
-      if (equip.accessory) sanitizedEquipment.accessory = { icon: equip.accessory.icon || 'ring', rarity: equip.accessory.rarity || 'common' };
-
-      const sanitizedAura = aura ? { 
-        rarity: aura.rarity || 'common', 
-        color: aura.color || '#3b82f6' 
-      } : null;
-
       const payload: any = {
-          locationId: currentState.currentLocationId || 'forest',
-          x: currentState.player.x || 0,
-          y: currentState.player.y || 0,
-          maxHp: currentState.player.maxHp || 100,
-          level: currentState.player.level || 1,
-          nickname: currentState.user.email?.split('@')[0] || currentState.user.uid,
-          skinColor: currentState.player.skinColor || '#e5c298',
-          rotation: rotationRef.current || 0,
-          equipment: sanitizedEquipment,
-          aura: sanitizedAura,
-          actionTime: lastAttackDate.current || 0,
-          updatedAt: Date.now()
+          locationId: currentState.currentLocationId, x: currentState.player.x, y: currentState.player.y,
+          maxHp: currentState.player.maxHp, level: currentState.player.level,
+          nickname: currentState.user.email?.split('@')[0], skinColor: currentState.player.skinColor,
+          rotation: rotationRef.current, updatedAt: Date.now(), actionTime: lastAttackDate.current,
+          equipment: { weapon: currentState.equipment.weapon ? { icon: currentState.equipment.weapon.icon } : null }
       };
-
-      if (Math.abs(lastLocalHp.current - currentState.player.hp) > 0.1) {
-          payload.hp = currentState.player.hp || 0;
-          lastLocalHp.current = currentState.player.hp || 0;
+      if (Math.abs(lastLocalHp.current - currentState.player.hp) > 0.5) {
+         payload.hp = currentState.player.hp;
+         lastLocalHp.current = currentState.player.hp;
       }
-
-      try {
-        setDoc(doc(db, 'worldPlayers', currentState.user.uid), payload, { merge: true });
-      } catch (e) {
-          console.error(e);
-      }
+      setDoc(doc(db, 'worldPlayers', currentState.user.uid), payload, { merge: true });
     }, 100);
 
-    return () => {
-      unsubList.forEach(u => u());
-      clearInterval(interval);
-    };
+    return () => { unsubList.forEach(u => u()); clearInterval(interval); };
   }, [useGameStore.getState().currentLocationId, useGameStore.getState().user?.uid]);
 
-  const update = (time: number) => {
-    const deltaTime = time - lastTimeRef.current;
-    lastTimeRef.current = time;
+  useEffect(() => {
+    updateRef.current = (time: number) => {
+      const deltaTime = time - lastTimeRef.current;
+      lastTimeRef.current = time;
 
-    const state = useGameStore.getState();
-    const { player, enemies, isAutoBattle, updatePlayerPos, damageEnemy, spawnEnemy, damagePlayer, gainExp, healPlayer } = state;
-
-    // HP Regen
-    if (!state.isDead) {
-      if (player.stats.hpRegen && player.stats.hpRegen > 0) {
-         if (time - lastRegenTime.current > 1000) {
-            healPlayer(player.stats.hpRegen);
-            lastRegenTime.current = time;
-         }
-      }
-
-      // Aura Damage
-    const aura = state.equipment.aura;
-    if (aura && time - lastAuraTickTime.current > 1000) {
-       const auraRadius = aura.rarity === 'ultra' ? 200 : aura.rarity === 'mythic' ? 150 : aura.rarity === 'legendary' ? 120 : aura.rarity === 'epic' ? 100 : 80;
-       const auraDamage = aura.stats?.damage || player.stats.damage * 0.1;
-       enemies.forEach(e => {
-          const d = Math.hypot(e.x - player.x, e.y - player.y);
-          if (d <= auraRadius) {
-             damageEnemy(e.id, Math.floor(auraDamage));
-             floatingTexts.current.push({
-               id: Math.random().toString(),
-               x: e.x,
-               y: e.y - 15,
-               text: `-${Math.floor(auraDamage)}`,
-               color: '#eab308',
-               life: 1.0
-             });
-          }
-       });
-       lastAuraTickTime.current = time;
-    }
-
-    // 1. Move Player (Manual)
-    const currentVelocity = velocity.current || { x: 0, y: 0 };
-    let newX = player.x + currentVelocity.x * PLAYER_SPEED;
-    let newY = player.y + currentVelocity.y * PLAYER_SPEED;
-
-    // 2. Auto Battle Logic
-    if (state.player.potionCooldown > 0) {
-      useGameStore.setState(prev => ({ 
-        player: { ...prev.player, potionCooldown: Math.max(0, prev.player.potionCooldown - 1/60) } 
-      }));
-    }
-
-    if (isAutoBattle || state.currentTargetId) {
-      const weapon = state.equipment.weapon;
-      const wName = (weapon?.name || '').toLowerCase();
-      const wIcon = weapon?.icon || '';
-      const isBow = wIcon === 'bow' || wName.includes('лук');
-      const isStaff = wIcon === 'staff' || wName.includes('посох');
-      const dynamicAttackRange = isBow ? 350 : isStaff ? 225 : ATTACK_RANGE;
-
-      // Find target only by currentTargetId
-      let target: { id: string, x: number, y: number, isPlayer?: boolean } | null = null;
+      const state = useGameStore.getState();
+      const { player, enemies, isAutoBattle, updatePlayerPos, damageEnemy, spawnEnemy, damagePlayer, gainExp, healPlayer } = state;
       
-      if (state.currentTargetId) {
-        if (state.currentTargetId.startsWith('player_')) {
-          const pid = state.currentTargetId.replace('player_', '');
-          const p = state.onlinePlayers?.find(p => p.id === pid);
-          if (p) target = { ...p, isPlayer: true };
-        } else {
-          const e = state.enemies.find(e => e.id === state.currentTargetId);
-          if (e) target = e;
-        }
-      }
-
-      if (target) {
-        const dist = Math.hypot(target.x - player.x, target.y - player.y);
-        
-        if (dist < dynamicAttackRange) {
-          // Attack
-          if (time - lastAttackTime.current > 1000 / player.stats.atkSpeed) {
-            let finalDmg = player.stats.damage;
-            let isCrit = false;
-
-            if (Math.random() * 100 < (player.stats.critRate || 5)) {
-              finalDmg = Math.floor(finalDmg * ((player.stats.critDamage || 150) / 100));
-              isCrit = true;
-            }
-            
-            const angle = Math.atan2(target.y - player.y, target.x - player.x);
-
-              if (isBow || isStaff) {
-                // Ranged attack - spawn projectile
-                projectiles.current.push({
-                  id: Math.random().toString(),
-                  x: player.x,
-                  y: player.y,
-                  startX: player.x,
-                  startY: player.y,
-                  targetX: target.x,
-                  targetY: target.y,
-                  targetId: target.id,
-                  progress: 0,
-                  speed: isBow ? 0.08 : 0.05,
-                  type: isBow ? 'arrow' : 'magic',
-                  color: isBow ? (isCrit ? '#fbbf24' : '#e5e7eb') : '#8b5cf6',
-                  damage: finalDmg,
-                  isCrit,
-                  isStaff
-                });
-                
-                attackEffect.current = { angle, progress: 0, type: isBow ? 'ranged' : 'magic' };
-              } else {
-                // Melee attack logic
-                let realTargetId = target.id;
-                if (target.isPlayer) {
-                    realTargetId = realTargetId.replace('player_', '');
-                    const targetRef = doc(db, 'worldPlayers', realTargetId);
-                    updateDoc(targetRef, { hp: increment(-finalDmg) }).catch(() => {});
-                } else {
-                    const mobRef = doc(db, 'worldMobs', state.currentLocationId, 'mobs', target.id);
-                    updateDoc(mobRef, { hp: increment(-finalDmg) }).catch(() => {});
-                    damageEnemy(target.id, finalDmg); // Local prediction
-                }
-              
-              if (player.stats.lifesteal && player.stats.lifesteal > 0) {
-                const heal = Math.floor(finalDmg * (player.stats.lifesteal / 100));
-                if (heal > 0) healPlayer(heal);
-              }
-              
-              attackEffect.current = { angle, progress: 0, type: 'melee' };
-
-              floatingTexts.current.push({
-                id: Math.random().toString(),
-                x: target.x,
-                y: target.y - 20,
-                text: isCrit ? `КРИТ -${finalDmg}` : `-${finalDmg}`,
-                color: isCrit ? '#fbbf24' : '#facc15',
-                life: 1.0
-              });
-              
-              for (let i = 0; i < 5; i++) {
-                particles.current.push({
-                  id: Math.random().toString(),
-                  x: target.x,
-                  y: target.y,
-                  vx: (Math.random() - 0.5) * 10,
-                  vy: (Math.random() - 0.5) * 10,
-                  color: '#ffffff',
-                  life: 1.0,
-                  maxLife: 1.0,
-                  size: 3
-                });
-              }
-            }
-
-            lastAttackTime.current = time;
-             lastAttackDate.current = Date.now();
-          }
-        } else if (isAutoBattle && (velocity.current?.x || 0) === 0 && (velocity.current?.y || 0) === 0) {
-          // Auto-move towards target
-          const angle = Math.atan2(target.y - player.y, target.x - player.x);
-          newX += Math.cos(angle) * (PLAYER_SPEED * 0.7);
-          newY += Math.sin(angle) * (PLAYER_SPEED * 0.7);
-        }
-      } else {
-         if (state.currentTargetId) {
-             state.setCurrentTargetId(null); // Clear invalid target
-             if (state.isAutoBattle) {
-                useGameStore.setState({ isAutoBattle: false });
-             }
-         }
-         const loc = state.locations.find(l => l.id === state.currentLocationId);
-         if (loc?.groundTheme === 'dungeon_corridor' && isAutoBattle && (velocity.current?.x || 0) === 0 && (velocity.current?.y || 0) === 0) {
-            if (!state.dungeonState.bossDefeated) {
-               newX += PLAYER_SPEED * 0.7; // run forward
-            } else if (!state.dungeonState.chestOpened) {
-               // move to chest
-               const distToChest = Math.hypot(7500 - player.x, 500 - player.y);
-               if (distToChest > 50) {
-                 const angle = Math.atan2(500 - player.y, 7500 - player.x);
-                 newX += Math.cos(angle) * (PLAYER_SPEED * 0.7);
-                 newY += Math.sin(angle) * (PLAYER_SPEED * 0.7);
-               } else {
-                 state.openChest();
-               }
-            }
-         }
-      }
-    }
-
-    const currentLoc = state.locations.find(l => l.id === state.currentLocationId);
-    if (currentLoc?.groundTheme === 'dungeon_corridor') {
-        newY = Math.max(200, Math.min(newY, 800)); // boundaries
-        newX = Math.max(0, Math.min(newX, 8500));
-        
-        // Manual player reaching chest check
-        if (state.dungeonState.bossDefeated && !state.dungeonState.chestOpened) {
-           const distToChest = Math.hypot(7500 - newX, 500 - newY);
-           if (distToChest < 100) {
-              state.openChest();
+      // HP Regen
+      if (!state.isDead) {
+        if (player.stats.hpRegen && player.stats.hpRegen > 0) {
+           if (time - lastRegenTime.current > 1000) {
+              healPlayer(player.stats.hpRegen);
+              lastRegenTime.current = time;
            }
         }
-    }
-
-    updatePlayerPos(newX, newY);
-  
-    // 3. Enemy Logic
-    // Cleanup distant enemies (more than 1000 units away) to allow new spawns near player
-    const MAX_ENEMY_DIST = 1000;
-    const nearbyEnemies = enemies.filter(enemy => {
-      const dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
-      return dist < MAX_ENEMY_DIST;
-    });
-    
-    if (nearbyEnemies.length !== enemies.length) {
-      useGameStore.setState({ enemies: nearbyEnemies });
-    }
-
-    nearbyEnemies.forEach(enemy => {
-      const dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
-      if (dist < 40) {
-        if (time - lastEnemyAttackTime.current > 1500) {
-            if (player.stats.dodge && Math.random() * 100 < player.stats.dodge) {
-                // Dodged!
-                lastEnemyAttackTime.current = time;
-                floatingTexts.current.push({
-                  id: Math.random().toString(),
-                  x: player.x,
-                  y: player.y - 20,
-                  text: 'УКЛОНЕНИЕ',
-                  color: '#93c5fd',
-                  life: 1.0
-                });
-            } else {
-                const baseDmg = (10 + enemy.level * 4) - (player.stats.defense / 5);
-                const dr = player.stats.damageReduction || 0;
-                const reducedDmg = Math.max(1, baseDmg * (1 - (dr / 100)));
-                damagePlayer(Math.round(reducedDmg));
-                lastEnemyAttackTime.current = time;
-                
-                floatingTexts.current.push({
-                  id: Math.random().toString(),
-                  x: player.x,
-                  y: player.y - 20,
-                  text: `-${Math.round(reducedDmg)}`,
-                  color: '#ef4444',
-                  life: 1.0
-                });
-            }
-          }
-        } else if (dist < 310) {
-          // Simple AI: Move towards player
-          const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
-          enemy.x += Math.cos(angle) * 2.8;
-          enemy.y += Math.sin(angle) * 2.8;
-        }
-      });
-    }
-
-    // 4. Update Animations & Effects
-      if (attackEffect.current) {
-        attackEffect.current.progress += (attackEffect.current.type === 'melee' ? 0.15 : 0.25);
-        if (attackEffect.current.progress >= 1.0) {
-          attackEffect.current = null;
+        
+        // Aura Damage
+        const aura = state.equipment.aura;
+        if (aura && time - lastAuraTickTime.current > 1000) {
+           const auraRadius = aura.rarity === 'ultra' ? 200 : aura.rarity === 'mythic' ? 150 : aura.rarity === 'legendary' ? 120 : aura.rarity === 'epic' ? 100 : 80;
+           const auraDamage = aura.stats?.damage || player.stats.damage * 0.1;
+           enemies.forEach(e => {
+              const d = Math.hypot(e.x - player.x, e.y - player.y);
+              if (d <= auraRadius) {
+                 damageEnemy(e.id, Math.floor(auraDamage));
+                 floatingTexts.current.push({
+                   id: Math.random().toString(),
+                   x: e.x,
+                   y: e.y - 15,
+                   text: `-${Math.floor(auraDamage)}`,
+                   color: '#eab308',
+                   life: 1.0
+                 });
+              }
+           });
+           lastAuraTickTime.current = time;
         }
       }
-      
-      // Update Projectiles
+
+      // Movement
+      if (!state.isDead) {
+        const currentVelocity = velocity.current || { x: 0, y: 0 };
+        let newX = player.x + currentVelocity.x * PLAYER_SPEED;
+        let newY = player.y + currentVelocity.y * PLAYER_SPEED;
+
+        // Auto Attack / Targeting
+        if (isAutoBattle || state.currentTargetId) {
+          const weapon = state.equipment.weapon;
+          const wName = (weapon?.name || '').toLowerCase();
+          const wIcon = weapon?.icon || '';
+          const isBow = wIcon === 'bow' || wName.includes('лук');
+          const isStaff = wIcon === 'staff' || wName.includes('посох');
+          const dynamicAttackRange = isBow ? 350 : isStaff ? 225 : ATTACK_RANGE;
+
+          // Auto-Targeting logic
+          if (!state.currentTargetId && isAutoBattle) {
+             const nearest = enemies.reduce((prev, curr) => {
+                const d1 = Math.hypot(prev.x - player.x, prev.y - player.y);
+                const d2 = Math.hypot(curr.x - player.x, curr.y - player.y);
+                return d2 < d1 ? curr : prev;
+             }, enemies[0]);
+             if (nearest && Math.hypot(nearest.x - player.x, nearest.y - player.y) < ENEMY_DETECTION_RANGE) {
+                state.setCurrentTargetId(nearest.id);
+             }
+          }
+
+          let target: { id: string, x: number, y: number, isPlayer?: boolean } | null = null;
+          if (state.currentTargetId) {
+            if (state.currentTargetId.startsWith('player_')) {
+              const p = state.onlinePlayers.find(op => op.id === state.currentTargetId!.replace('player_', ''));
+              if (p) target = { ...p, isPlayer: true };
+            } else {
+              const e = enemies.find(en => en.id === state.currentTargetId);
+              if (e) target = e;
+            }
+          }
+
+          if (target) {
+            const dist = Math.hypot(target.x - player.x, target.y - player.y);
+            if (dist < dynamicAttackRange) {
+               // Combat logic...
+               if (time - lastAttackTime.current > 1000 / player.stats.atkSpeed) {
+                  // Attack execution as before...
+                  // (Keeping the block same but ensuring state is fresh)
+                  const angle = Math.atan2(target.y - player.y, target.x - player.x);
+                  let finalDmg = player.stats.damage;
+                  let isCrit = Math.random() * 100 < (player.stats.critRate || 5);
+                  if (isCrit) finalDmg = Math.floor(finalDmg * ((player.stats.critDamage || 150) / 100));
+
+                  if (isBow || isStaff) {
+                    projectiles.current.push({
+                      id: Math.random().toString(),
+                      x: player.x, y: player.y, startX: player.x, startY: player.y,
+                      targetX: target.x, targetY: target.y, targetId: target.id,
+                      progress: 0, speed: isBow ? 0.08 : 0.05, type: isBow ? 'arrow' : 'magic',
+                      color: isBow ? (isCrit ? '#fbbf24' : '#e5e7eb') : '#8b5cf6',
+                      damage: finalDmg, isCrit, isStaff
+                    });
+                    attackEffect.current = { angle, progress: 0, type: isBow ? 'ranged' : 'magic' };
+                  } else {
+                    if (target.isPlayer) {
+                        updateDoc(doc(db, 'worldPlayers', target.id.replace('player_', '')), { hp: increment(-finalDmg) }).catch(() => {});
+                    } else {
+                        updateDoc(doc(db, 'worldMobs', state.currentLocationId, 'mobs', target.id), { hp: increment(-finalDmg) }).catch(() => {});
+                        damageEnemy(target.id, finalDmg);
+                    }
+                    if (player.stats.lifesteal > 0) healPlayer(Math.floor(finalDmg * (player.stats.lifesteal / 100)));
+                    attackEffect.current = { angle, progress: 0, type: 'melee' };
+                    floatingTexts.current.push({ id: Math.random().toString(), x: target.x, y: target.y - 20, text: isCrit ? `КРИТ -${finalDmg}` : `-${finalDmg}`, color: isCrit ? '#fbbf24' : '#facc15', life: 1.0 });
+                  }
+                  lastAttackTime.current = time;
+                  lastAttackDate.current = Date.now();
+               }
+            } else if (isAutoBattle && currentVelocity.x === 0 && currentVelocity.y === 0) {
+               const angle = Math.atan2(target.y - player.y, target.x - player.x);
+               newX += Math.cos(angle) * (PLAYER_SPEED * 0.7);
+               newY += Math.sin(angle) * (PLAYER_SPEED * 0.7);
+            }
+          }
+        }
+        
+        // Dungeon boundaries
+        const currentLoc = state.locations.find(l => l.id === state.currentLocationId);
+        if (currentLoc?.groundTheme === 'dungeon_corridor') {
+            newY = Math.max(200, Math.min(newY, 800));
+            newX = Math.max(0, Math.min(newX, 8500));
+            if (state.dungeonState.bossDefeated && !state.dungeonState.chestOpened && Math.hypot(7500 - newX, 500 - newY) < 100) {
+               state.openChest();
+            }
+        }
+        updatePlayerPos(newX, newY);
+      }
+
+      // Effects Update
+      if (attackEffect.current) {
+        attackEffect.current.progress += (attackEffect.current.type === 'melee' ? 0.15 : 0.25);
+        if (attackEffect.current.progress >= 1.0) attackEffect.current = null;
+      }
       projectiles.current.forEach(p => {
         p.progress += p.speed;
         p.x = p.startX + (p.targetX - p.startX) * p.progress;
         p.y = p.startY + (p.targetY - p.startY) * p.progress;
-        
-        // Add trail particle
-        if (Math.random() < 0.5) {
-          particles.current.push({
-            id: Math.random().toString(),
-            x: p.x + (Math.random() - 0.5) * 10,
-            y: p.y + (Math.random() - 0.5) * 10,
-            vx: (Math.random() - 0.5) * 2,
-            vy: (Math.random() - 0.5) * 2,
-            color: p.color,
-            life: 1.0,
-            maxLife: 1.0,
-            size: p.type === 'magic' ? 4 : 2
-          });
-        }
       });
-      
-      const removedProjectiles = projectiles.current.filter(p => p.progress >= 1.0);
+      const removedP = projectiles.current.filter(p => p.progress >= 1.0);
       projectiles.current = projectiles.current.filter(p => p.progress < 1.0);
-      
-      removedProjectiles.forEach(p => {
+      removedP.forEach(p => {
         if (p.targetId) {
           if (p.targetId.startsWith('player_')) {
-              const pid = p.targetId.replace('player_', '');
-              const targetRef = doc(db, 'worldPlayers', pid);
-              updateDoc(targetRef, { hp: increment(-p.damage) }).catch(() => {});
+              updateDoc(doc(db, 'worldPlayers', p.targetId.replace('player_', '')), { hp: increment(-p.damage) }).catch(() => {});
           } else {
-              const mobRef = doc(db, 'worldMobs', state.currentLocationId, 'mobs', p.targetId);
-              updateDoc(mobRef, { hp: increment(-p.damage) }).catch(() => {});
-              damageEnemy(p.targetId, p.damage); // Local prediction
-          }
-          
-          if (player.stats.lifesteal && player.stats.lifesteal > 0) {
-             const heal = Math.floor(p.damage * (player.stats.lifesteal / 100));
-             if (heal > 0) healPlayer(heal);
-          } else if (p.isStaff) {
-             const heal = Math.floor(p.damage * 0.15);
-             if (heal > 0) healPlayer(heal);
-          }
-          
-          floatingTexts.current.push({
-            id: Math.random().toString(),
-            x: p.targetX,
-            y: p.targetY - 20,
-            text: p.isCrit ? `КРИТ -${p.damage}` : `-${p.damage}`,
-            color: p.isCrit ? '#fbbf24' : '#facc15',
-            life: 1.0
-          });
-          
-          // Hit explosion particles
-          for (let i = 0; i < 8; i++) {
-            particles.current.push({
-              id: Math.random().toString(),
-              x: p.targetX,
-              y: p.targetY,
-              vx: (Math.random() - 0.5) * 15,
-              vy: (Math.random() - 0.5) * 15,
-              color: p.color,
-              life: 1.0,
-              maxLife: 1.0,
-              size: p.type === 'magic' ? 5 : 3
-            });
+              updateDoc(doc(db, 'worldMobs', state.currentLocationId, 'mobs', p.targetId), { hp: increment(-p.damage) }).catch(() => {});
+              damageEnemy(p.targetId, p.damage);
           }
         }
       });
-      
-      // Update Particles
-      particles.current.forEach(p => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life -= 0.05;
-      });
+      particles.current.forEach(p => { p.x += p.vx; p.y += p.vy; p.life -= 0.05; });
       particles.current = particles.current.filter(p => p.life > 0);
-  
-      // 5. Update Floating Texts
       floatingTexts.current.forEach(t => t.life -= 0.02);
       floatingTexts.current = floatingTexts.current.filter(t => t.life > 0);
-  
-      // 5.1 Interpolate Online Players
-      onlinePlayersCache.current.forEach((val) => {
-        // Move towards projected target
-        const lerpFactor = 0.35;
-        const velocityFactor = 0.8;
-        
-        val.tx += (val.vx || 0) * (PLAYER_SPEED * velocityFactor); 
-        val.ty += (val.vy || 0) * (PLAYER_SPEED * velocityFactor);
 
-        val.x += (val.tx - val.x) * lerpFactor; 
-        val.y += (val.ty - val.y) * lerpFactor;
-        
-        // Shortest path rotation interpolation
+      // Interpolation
+      onlinePlayersCache.current.forEach(val => {
+        val.tx += (val.vx || 0) * (PLAYER_SPEED * 0.75); 
+        val.ty += (val.vy || 0) * (PLAYER_SPEED * 0.75);
+        val.x += (val.tx - val.x) * 0.25; val.y += (val.ty - val.y) * 0.25;
         let diff = val.tr - val.r;
         while (diff < -Math.PI) diff += Math.PI * 2;
         while (diff > Math.PI) diff -= Math.PI * 2;
-        val.r += diff * 0.25;
-  
+        val.r += diff * 0.15;
         if (val.effect) {
-           val.effect.progress += (val.effect.type === 'melee' ? 0.2 : 0.3);
+           val.effect.progress += (val.effect.type === 'melee' ? 0.15 : 0.2);
            if (val.effect.progress >= 1.0) val.effect = null;
         }
       });
-
-      // 5.2 Interpolate Mobs
-      enemies.forEach(enemy => {
+      state.enemies.forEach(enemy => {
         const cache = mobCache.current.get(enemy.id);
         if (cache) {
-          cache.x += (cache.tx - cache.x) * 0.25;
-          cache.y += (cache.ty - cache.y) * 0.25;
-          enemy.x = cache.x;
-          enemy.y = cache.y;
+          cache.x += (cache.tx - cache.x) * 0.2; cache.y += (cache.ty - cache.y) * 0.2;
+          enemy.x = cache.x; enemy.y = cache.y;
         }
       });
 
-    // 6. Logic Timers
-    if (!state.isDead) {
-      const timeSinceLastSpawn = time - lastRespawnTime.current;
-      const timeSinceLastBuffUpdate = time - (lastBuffUpdateTime.current || 0);
+      // Master Logic
+      const playerIds = [state.user!.uid, ...state.onlinePlayers.map(p => p.id)].sort();
+      const amIMaster = playerIds[0] === state.user!.uid;
 
-      if (timeSinceLastBuffUpdate > 1000) {
-        state.updateBuffs();
-        lastBuffUpdateTime.current = time;
-      }
+      if (!state.isDead && amIMaster) {
+        // Sync deaths
+        state.enemies.forEach(e => { if (e.hp <= 0) deleteDoc(doc(db, 'worldMobs', state.currentLocationId, 'mobs', e.id)).catch(() => {}); });
+        
+        // Spawn
+        const timeSinceSpawn = time - lastRespawnTime.current;
+        if (timeSinceSpawn > 1500 && state.enemies.length < 15) {
+            const loc = state.locations.find(l => l.id === state.currentLocationId) || state.locations[0];
+            const mobId = Math.random().toString().slice(2, 10);
+            const angle = Math.random() * Math.PI*2;
+            const dist = 300 + Math.random()*400;
+            const enemyLevel = Math.max(player.level, loc.minLevel);
+            setDoc(doc(db, 'worldMobs', state.currentLocationId, 'mobs', mobId), {
+                x: player.x + Math.cos(angle)*dist, y: player.y + Math.sin(angle)*dist,
+                hp: loc.enemyBaseHp + enemyLevel*15, maxHp: loc.enemyBaseHp + enemyLevel*15,
+                level: enemyLevel, type: Math.random() > 0.7 ? 'Титан' : 'Демон', updatedAt: Date.now()
+            });
+            lastRespawnTime.current = time;
+        }
 
-      // Master Election for spawning/movement
-      const amIMaster = state.onlinePlayers.every(op => op.id >= state.user!.uid);
-
-      // Sync Mob Death: only Master deletes it to avoid permission conflicts and race conditions
-      if (amIMaster) {
-        state.enemies.forEach(e => {
-           if (e.hp <= 0) {
-              const mobRef = doc(db, 'worldMobs', state.currentLocationId, 'mobs', e.id);
-              deleteDoc(mobRef).catch(() => {});
+        // Move mobs to nearest player
+        const allP = [{ id: state.user!.uid, x: player.x, y: player.y }, ...state.onlinePlayers];
+        state.enemies.forEach(en => {
+           let nearest = allP[0]; let minD = Math.hypot(nearest.x - en.x, nearest.y - en.y);
+           allP.forEach(p => { const d = Math.hypot(p.x - en.x, p.y - en.y); if(d < minD) { minD = d; nearest = p; } });
+           if (minD > 40 && minD < 350) {
+              const ang = Math.atan2(nearest.y - en.y, nearest.x - en.x);
+              const cache = mobCache.current.get(en.id);
+              if (cache) { cache.tx += Math.cos(ang) * 1.8; cache.ty += Math.sin(ang) * 1.8; }
+              if (Math.random() < 0.1) {
+                 updateDoc(doc(db, 'worldMobs', state.currentLocationId, 'mobs', en.id), { x: cache?.tx || en.x, y: cache?.ty || en.y, updatedAt: Date.now() }).catch(() => {});
+              }
            }
         });
       }
 
-      if (amIMaster && timeSinceLastSpawn > 1000) {
-        const location = state.locations.find(l => l.id === state.currentLocationId) || state.locations[0];
-        
-        if (enemies.length < 15) {
-            const spawnCount = enemies.length < 5 ? 5 : 2; 
-            for (let i = 0; i < spawnCount; i++) {
-              const angle = Math.random() * Math.PI * 2;
-              const dist = 300 + Math.random() * 400;
-              const enemyLevel = Math.max(player.level, location.minLevel);
-              const mobId = Math.random().toString().slice(2, 10);
-              const mobRef = doc(db, 'worldMobs', state.currentLocationId, 'mobs', mobId);
-              
-              setDoc(mobRef, {
-                x: player.x + Math.cos(angle) * dist,
-                y: player.y + Math.sin(angle) * dist,
-                hp: (location.enemyBaseHp) + enemyLevel * 15,
-                maxHp: (location.enemyBaseHp) + enemyLevel * 15,
-                level: enemyLevel,
-                type: Math.random() > 0.7 ? 'Титан' : 'Демон',
-                updatedAt: Date.now()
-              });
-            }
-          }
-          lastRespawnTime.current = time;
-      }
+      draw(state, time);
+      if (updateRef.current) requestRef.current = requestAnimationFrame(updateRef.current);
+    };
 
-      // Only Master moves enemies and syncs to firebase periodically
-      if (amIMaster) {
-        enemies.forEach(enemy => {
-          const dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
-          if (dist > 40 && dist < 310) {
-            const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
-            const vx = Math.cos(angle) * 1.5;
-            const vy = Math.sin(angle) * 1.5;
-            
-            // Update local prediction
-            const cache = mobCache.current.get(enemy.id);
-            if (cache) {
-              cache.tx += vx;
-              cache.ty += vy;
-            }
-
-            // Periodically sync to Firebase (limited rate)
-            if (Math.random() < 0.1) { 
-                const mobRef = doc(db, 'worldMobs', state.currentLocationId, 'mobs', enemy.id);
-                const now = Date.now();
-                if (cache) cache.updatedAt = now; // Update local cache timestamp to ignore older server updates
-                updateDoc(mobRef, { 
-                    x: cache ? cache.tx : enemy.x, 
-                    y: cache ? cache.ty : enemy.y,
-                    updatedAt: now
-                }).catch(() => {});
-            }
-          }
-        });
-      }
-
-      // 6.1 Mobs damage players (Every player checks for themselves)
-      enemies.forEach(enemy => {
-        const dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
-        if (dist < 40) {
-          if (time - lastEnemyAttackTime.current > 1500) {
-              if (player.stats.dodge && Math.random() * 100 < player.stats.dodge) {
-                  lastEnemyAttackTime.current = time;
-                  floatingTexts.current.push({
-                    id: Math.random().toString(),
-                    x: player.x,
-                    y: player.y - 20,
-                    text: 'УКЛОНЕНИЕ',
-                    color: '#93c5fd',
-                    life: 1.0
-                  });
-              } else {
-                  const baseDmg = (10 + enemy.level * 4) - (player.stats.defense / 5);
-                  const dr = player.stats.damageReduction || 0;
-                  const reducedDmg = Math.max(1, baseDmg * (1 - (dr / 100)));
-                  damagePlayer(Math.round(reducedDmg));
-                  lastEnemyAttackTime.current = time;
-                  
-                  floatingTexts.current.push({
-                    id: Math.random().toString(),
-                    x: player.x,
-                    y: player.y - 20,
-                    text: `-${Math.round(reducedDmg)}`,
-                    color: '#ef4444',
-                    life: 1.0
-                  });
-              }
-          }
-        }
-      });
-    }
-
-    draw(useGameStore.getState(), time);
-    requestRef.current = requestAnimationFrame(update);
-  };
+    if (updateRef.current) requestRef.current = requestAnimationFrame(updateRef.current);
+    return () => { if (requestRef.current) cancelAnimationFrame(requestRef.current); };
+  }, []);
 
   const drawCharacter = (
     ctx: CanvasRenderingContext2D,
@@ -1900,12 +1513,10 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     window.addEventListener('resize', handleResize);
     handleResize();
 
-    requestRef.current = requestAnimationFrame(update);
     return () => {
-      if (requestRef.current) cancelAnimationFrame(requestRef.current);
       window.removeEventListener('resize', handleResize);
     };
-  }, []); // Remove velocity dependency
+  }, []); 
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;

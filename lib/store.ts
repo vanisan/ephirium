@@ -228,12 +228,12 @@ export function generateRandomItem(level: number, rarity: string, forcedType?: s
     // Level constraints based on rarity
     const reqLevels: Record<string, number> = {
       common: 1, 
-      uncommon: 3, 
-      rare: 5, 
-      epic: 15, 
-      legendary: 30, 
-      mythic: 45, 
-      ultra: 60
+      uncommon: 2, 
+      rare: 4, 
+      epic: 8, 
+      legendary: 15, 
+      mythic: 25, 
+      ultra: 40
     };
     const finalLevel = reqLevels[rarity] || level;
 
