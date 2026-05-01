@@ -55,6 +55,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
   const lastTimeRef = useRef<number>(0);
   const lastAttackTime = useRef<number>(0);
   const lastAttackDate = useRef<number>(0);
+  const lastLocalHp = useRef<number>(-1);
   const lastEnemyAttackTime = useRef<number>(0);
   const lastRespawnTime = useRef<number>(0);
   const lastBuffUpdateTime = useRef<number>(0);
@@ -65,7 +66,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
   const projectiles = useRef<Projectile[]>([]);
   const rotationRef = useRef<number>(0);
   const attackEffect = useRef<{ angle: number, progress: number, type: 'melee' | 'ranged' | 'magic' } | null>(null);
-  const onlinePlayersCache = useRef<Map<string, { x: number, y: number, r: number, tx: number, ty: number, tr: number, lastAction?: number, effect?: { progress: number, type: 'melee' | 'ranged' | 'magic', angle: number } | null }>>(new Map());
+  const onlinePlayersCache = useRef<Map<string, { x: number, y: number, r: number, tx: number, ty: number, tr: number, vx?: number, vy?: number, lastUpdate?: number, lastAction?: number, effect?: { progress: number, type: 'melee' | 'ranged' | 'magic', angle: number } | null }>>(new Map());
 
   // Constants
   const PLAYER_SPEED = 4.5;
@@ -173,6 +174,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
            if (data.hp < currentState.player.hp) {
               const dmg = currentState.player.hp - data.hp;
               currentState.damagePlayer(dmg);
+              lastLocalHp.current = data.hp;
            }
         } else if (now - data.updatedAt < 5000) { // Only show active players
           const id = d.id;
@@ -183,12 +185,18 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           let lastAction = data.actionTime || 0;
 
           if (!onlinePlayersCache.current.has(id)) {
-            onlinePlayersCache.current.set(id, { x: tx, y: ty, r: tr, tx, ty, tr, lastAction, effect: null });
+            onlinePlayersCache.current.set(id, { x: tx, y: ty, r: tr, tx, ty, tr, vx: 0, vy: 0, lastAction, effect: null, lastUpdate: Date.now() });
           } else {
             const entry = onlinePlayersCache.current.get(id)!;
+            const dt = Date.now() - (entry.lastUpdate || Date.now());
+            if (dt > 0) {
+               entry.vx = (tx - entry.tx) / (dt / 16.666);
+               entry.vy = (ty - entry.ty) / (dt / 16.666);
+            }
             entry.tx = tx;
             entry.ty = ty;
             entry.tr = tr;
+            entry.lastUpdate = Date.now();
             if (lastAction > (entry.lastAction || 0)) {
                entry.lastAction = lastAction;
                entry.effect = {
@@ -244,12 +252,10 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         color: aura.color || '#3b82f6' 
       } : null;
 
-      try {
-        setDoc(doc(db, 'worldPlayers', currentState.user.uid), {
+      const payload: any = {
           locationId: currentState.currentLocationId || 'forest',
           x: currentState.player.x || 0,
           y: currentState.player.y || 0,
-          hp: currentState.player.hp || 0,
           maxHp: currentState.player.maxHp || 100,
           level: currentState.player.level || 1,
           nickname: currentState.user.email?.split('@')[0] || currentState.user.uid,
@@ -259,11 +265,19 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           aura: sanitizedAura,
           actionTime: lastAttackDate.current || 0,
           updatedAt: Date.now()
-        }, { merge: true });
+      };
+
+      if (lastLocalHp.current !== currentState.player.hp) {
+          payload.hp = currentState.player.hp || 0;
+          lastLocalHp.current = currentState.player.hp || 0;
+      }
+
+      try {
+        setDoc(doc(db, 'worldPlayers', currentState.user.uid), payload, { merge: true });
       } catch (e) {
           console.error(e);
       }
-    }, 300);
+    }, 150);
 
     return () => {
       unsubscribe();
@@ -386,14 +400,9 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
               if (target.isPlayer) {
                   realTargetId = realTargetId.replace('player_', '');
                   const targetRef = doc(db, 'worldPlayers', realTargetId);
-                  // Read and update their HP
-                  import('firebase/firestore').then(({ getDoc, updateDoc }) => {
-                      getDoc(targetRef).then(snap => {
-                         if (snap.exists()) {
-                             const thp = snap.data().hp;
-                             updateDoc(targetRef, { hp: Math.max(0, thp - finalDmg) });
-                         }
-                      });
+                  // Apply damage with increment
+                  import('firebase/firestore').then(({ updateDoc, increment }) => {
+                      updateDoc(targetRef, { hp: increment(-finalDmg) }).catch(() => {});
                   });
               } else {
                   damageEnemy(target.id, finalDmg);
@@ -572,13 +581,8 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           if (p.targetId.startsWith('player_')) {
               const pid = p.targetId.replace('player_', '');
               const targetRef = doc(db, 'worldPlayers', pid);
-              import('firebase/firestore').then(({ getDoc, updateDoc }) => {
-                  getDoc(targetRef).then(snap => {
-                     if (snap.exists()) {
-                         const thp = snap.data().hp;
-                         updateDoc(targetRef, { hp: Math.max(0, thp - p.damage) });
-                     }
-                  });
+              import('firebase/firestore').then(({ updateDoc, increment }) => {
+                  updateDoc(targetRef, { hp: increment(-p.damage) }).catch(() => {});
               });
           } else {
               damageEnemy(p.targetId, p.damage);
@@ -632,8 +636,11 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
   
       // 5.1 Interpolate Online Players
       onlinePlayersCache.current.forEach((val) => {
-        val.x += (val.tx - val.x) * 0.15; // smooth interpolation over 300ms
-        val.y += (val.ty - val.y) * 0.15;
+        val.tx += (val.vx || 0) * (PLAYER_SPEED * 0.7); 
+        val.ty += (val.vy || 0) * (PLAYER_SPEED * 0.7);
+
+        val.x += (val.tx - val.x) * 0.25; 
+        val.y += (val.ty - val.y) * 0.25;
         
         // Shortest path rotation interpolation
         let diff = val.tr - val.r;
