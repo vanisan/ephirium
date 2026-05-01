@@ -95,7 +95,7 @@ export const Joystick: React.FC<JoystickProps> = ({ onMove }) => {
   return (
     <div 
       ref={containerRef}
-      className="relative w-32 h-32 sm:w-32 sm:h-32 rounded-full bg-black/40 backdrop-blur-md border-2 border-[#d4af37] flex items-center justify-center select-none touch-none shadow-[0_0_20px_rgba(0,0,0,0.5)]"
+      className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-black/40 backdrop-blur-md border-2 border-[#d4af37] flex items-center justify-center select-none touch-none shadow-[0_0_20px_rgba(0,0,0,0.5)]"
       onMouseDown={(e) => handleStart(e.clientX, e.clientY, null)}
       onTouchStart={(e) => {
         const touch = e.touches[0];
@@ -103,7 +103,7 @@ export const Joystick: React.FC<JoystickProps> = ({ onMove }) => {
       }}
     >
       <motion.div 
-        className="w-14 h-14 sm:w-14 sm:h-14 rounded-full bg-[#d4af37] border-2 border-white/20 shadow-[0_0_20px_rgba(212,175,55,0.6)] pointer-events-none"
+        className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-[#d4af37] border-2 border-white/20 shadow-[0_0_20px_rgba(212,175,55,0.6)] pointer-events-none"
         animate={{ x: position.x, y: position.y }}
         transition={{ type: 'spring', damping: 12, stiffness: 450 }}
       />

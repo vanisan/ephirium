@@ -616,14 +616,14 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
   
       // 5.1 Interpolate Online Players
       onlinePlayersCache.current.forEach((val) => {
-        val.x += (val.tx - val.x) * 0.05; // Make interpolation slower / smoother for 300ms sync
-        val.y += (val.ty - val.y) * 0.05;
+        val.x += (val.tx - val.x) * 0.15; // smooth interpolation over 300ms
+        val.y += (val.ty - val.y) * 0.15;
         
         // Shortest path rotation interpolation
         let diff = val.tr - val.r;
         while (diff < -Math.PI) diff += Math.PI * 2;
         while (diff > Math.PI) diff -= Math.PI * 2;
-        val.r += diff * 0.1;
+        val.r += diff * 0.2;
       });
 
     // 6. Logic Timers
@@ -1016,52 +1016,51 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         // Custom Bow Shapes
         if (isCommonW || isUncommonW) {
           ctx.lineWidth = isUncommonW ? 4 : 3;
+          ctx.lineJoin = 'miter';
           ctx.beginPath();
-          ctx.arc(10, 0, bSize, -Math.PI/2 * 0.9, Math.PI/2 * 0.9);
+          ctx.moveTo(10, -bSize); ctx.lineTo(25, -bSize/2); ctx.lineTo(15, 0); ctx.lineTo(25, bSize/2); ctx.lineTo(10, bSize);
           ctx.stroke();
           
           if (isUncommonW) {
-             // Leaves/spikes
+             // Spikes
              ctx.fillStyle = '#22c55e';
-             ctx.beginPath(); ctx.moveTo(10, -bSize); ctx.lineTo(20, -bSize+10); ctx.lineTo(10, -bSize+20); ctx.fill();
-             ctx.beginPath(); ctx.moveTo(10, bSize); ctx.lineTo(20, bSize-10); ctx.lineTo(10, bSize-20); ctx.fill();
+             ctx.beginPath(); ctx.moveTo(20, -bSize/2 - 5); ctx.lineTo(35, -bSize/2); ctx.lineTo(20, -bSize/2 + 5); ctx.fill();
+             ctx.beginPath(); ctx.moveTo(20, bSize/2 - 5); ctx.lineTo(35, bSize/2); ctx.lineTo(20, bSize/2 + 5); ctx.fill();
           }
         } 
         else if (isRareW) {
-          ctx.lineWidth = 5;
+          ctx.lineWidth = 5; ctx.lineJoin = 'miter';
           ctx.shadowBlur = 10; ctx.shadowColor = '#60a5fa';
           ctx.beginPath();
-          ctx.moveTo(10, -bSize);
-          ctx.quadraticCurveTo(40, -bSize/2, 20, 0);
-          ctx.quadraticCurveTo(40, bSize/2, 10, bSize);
+          ctx.moveTo(10, -bSize); ctx.lineTo(35, -bSize*0.6); ctx.lineTo(45, -10); ctx.lineTo(20, 0);
+          ctx.lineTo(45, 10); ctx.lineTo(35, bSize*0.6); ctx.lineTo(10, bSize);
           ctx.stroke();
           // Ice spikes
           ctx.fillStyle = '#bfdbfe';
-          ctx.beginPath(); ctx.moveTo(25, -bSize/3); ctx.lineTo(40, -bSize/3 + 10); ctx.lineTo(20, -bSize/3 + 20); ctx.fill();
-          ctx.beginPath(); ctx.moveTo(25, bSize/3); ctx.lineTo(40, bSize/3 - 10); ctx.lineTo(20, bSize/3 - 20); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(35, -bSize/2); ctx.lineTo(60, -bSize/2 + 5); ctx.lineTo(40, -bSize/2 + 15); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(35, bSize/2); ctx.lineTo(60, bSize/2 - 5); ctx.lineTo(40, bSize/2 - 15); ctx.fill();
           ctx.shadowBlur = 0;
         }
         else if (isEpicW) {
-          ctx.lineWidth = 6;
+          ctx.lineWidth = 6; ctx.lineJoin = 'miter';
           ctx.shadowBlur = 15; ctx.shadowColor = '#d8b4fe';
           ctx.beginPath();
-          ctx.moveTo(10, -bSize);
-          ctx.bezierCurveTo(45, -bSize*0.8, 55, -10, 10, 0);
-          ctx.bezierCurveTo(55, 10, 45, bSize*0.8, 10, bSize);
+          ctx.moveTo(10, -bSize); ctx.lineTo(40, -bSize*0.8); ctx.lineTo(60, -20); ctx.lineTo(30, -5); ctx.lineTo(15, 0);
+          ctx.lineTo(30, 5); ctx.lineTo(60, 20); ctx.lineTo(40, bSize*0.8); ctx.lineTo(10, bSize);
           ctx.stroke();
           // Dark crystals
           ctx.fillStyle = '#a855f7';
-          ctx.fillRect(8, -bSize, 4, 15); ctx.fillRect(8, bSize-15, 4, 15);
+          ctx.beginPath(); ctx.moveTo(40, -bSize*0.8); ctx.lineTo(65, -bSize*0.6); ctx.lineTo(50, -bSize*0.4); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(40, bSize*0.8); ctx.lineTo(65, bSize*0.6); ctx.lineTo(50, bSize*0.4); ctx.fill();
           ctx.shadowBlur = 0;
         }
         else if (isLegendaryW) {
-          ctx.lineWidth = 8;
+          ctx.lineWidth = 8; ctx.lineJoin = 'miter';
           ctx.shadowBlur = 20; ctx.shadowColor = '#fde047';
           ctx.strokeStyle = '#fef08a';
           ctx.beginPath();
-          ctx.moveTo(10, -bSize);
-          ctx.bezierCurveTo(60, -bSize*0.9, 70, -20, 15, 0);
-          ctx.bezierCurveTo(70, 20, 60, bSize*0.9, 10, bSize);
+          ctx.moveTo(10, -bSize); ctx.lineTo(50, -bSize*0.9); ctx.lineTo(75, -25); ctx.lineTo(35, -10); ctx.lineTo(20, 0);
+          ctx.lineTo(35, 10); ctx.lineTo(75, 25); ctx.lineTo(50, bSize*0.9); ctx.lineTo(10, bSize);
           ctx.stroke();
           
           ctx.lineWidth = 4;
@@ -1070,31 +1069,27 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           
           // Ornaments
           ctx.fillStyle = '#fde047';
-          ctx.beginPath(); ctx.moveTo(20, -bSize/2); ctx.lineTo(40, -bSize/2); ctx.lineTo(30, -bSize/2 + 20); ctx.fill();
-          ctx.beginPath(); ctx.moveTo(20, bSize/2); ctx.lineTo(40, bSize/2); ctx.lineTo(30, bSize/2 - 20); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(50, -bSize*0.8); ctx.lineTo(80, -bSize*0.7); ctx.lineTo(60, -bSize*0.5); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(50, bSize*0.8); ctx.lineTo(80, bSize*0.7); ctx.lineTo(60, bSize*0.5); ctx.fill();
           ctx.shadowBlur = 0;
         }
         else if (isMythicW) {
-          ctx.lineWidth = 10;
+          ctx.lineWidth = 10; ctx.lineJoin = 'miter';
           ctx.shadowBlur = 25; ctx.shadowColor = '#ef4444';
           ctx.strokeStyle = '#7f1d1d';
           ctx.beginPath();
-          ctx.moveTo(10, -bSize);
-          ctx.bezierCurveTo(65, -bSize, 80, -bSize/2, 10, 0);
-          ctx.bezierCurveTo(80, bSize/2, 65, bSize, 10, bSize);
+          ctx.moveTo(10, -bSize); ctx.lineTo(65, -bSize); ctx.lineTo(95, -30); ctx.lineTo(40, -10); ctx.lineTo(15, 0);
+          ctx.lineTo(40, 10); ctx.lineTo(95, 30); ctx.lineTo(65, bSize); ctx.lineTo(10, bSize);
           ctx.stroke();
           
           ctx.lineWidth = 4;
           ctx.strokeStyle = '#ef4444';
-          ctx.beginPath();
-          ctx.moveTo(8, -bSize+2); ctx.bezierCurveTo(60, -bSize+2, 70, -bSize/2, 10, 0);
-          ctx.bezierCurveTo(70, bSize/2, 60, bSize-2, 8, bSize-2);
           ctx.stroke(); // inner fiery line
 
           ctx.fillStyle = '#fca5a5';
           for(let i=0; i<3; i++) {
-             ctx.beginPath(); ctx.moveTo(25+i*10, -bSize/2+i*10); ctx.lineTo(45+i*10, -bSize/2+i*5); ctx.lineTo(35+i*10, -bSize/2+20+i*5); ctx.fill();
-             ctx.beginPath(); ctx.moveTo(25+i*10, bSize/2-i*10); ctx.lineTo(45+i*10, bSize/2-i*5); ctx.lineTo(35+i*10, bSize/2-20-i*5); ctx.fill();
+             ctx.beginPath(); ctx.moveTo(30+i*20, -bSize/2+i*10); ctx.lineTo(70+i*15, -bSize/2+i*5); ctx.lineTo(50+i*20, -bSize/2+25+i*5); ctx.fill();
+             ctx.beginPath(); ctx.moveTo(30+i*20, bSize/2-i*10); ctx.lineTo(70+i*15, bSize/2-i*5); ctx.lineTo(50+i*20, bSize/2-25-i*5); ctx.fill();
           }
           ctx.shadowBlur = 0;
         }
@@ -1103,21 +1098,20 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           ctx.rotate(-time * 0.003);
           ctx.strokeStyle = 'rgba(236, 72, 153, 0.4)';
           ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.ellipse(40, 0, bSize, 20, 0, 0, Math.PI*2); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(10, -bSize); ctx.lineTo(40, 0); ctx.lineTo(10, bSize); ctx.lineTo(-20, 0); ctx.closePath(); ctx.stroke();
           ctx.rotate(Math.PI/2);
           ctx.strokeStyle = 'rgba(45, 212, 191, 0.4)';
-          ctx.beginPath(); ctx.ellipse(40, 0, bSize, 20, 0, 0, Math.PI*2); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(10, -bSize); ctx.lineTo(40, 0); ctx.lineTo(10, bSize); ctx.lineTo(-20, 0); ctx.closePath(); ctx.stroke();
           ctx.restore();
 
-          ctx.lineWidth = 12;
+          ctx.lineWidth = 12; ctx.lineJoin = 'miter';
           ctx.shadowBlur = 30; ctx.shadowColor = '#a855f7';
           const grad = ctx.createLinearGradient(10, -bSize, 10, bSize);
           grad.addColorStop(0, '#2dd4bf'); grad.addColorStop(0.3, '#3b82f6'); grad.addColorStop(0.7, '#a855f7'); grad.addColorStop(1, '#f43f5e');
           ctx.strokeStyle = grad;
           ctx.beginPath();
-          ctx.moveTo(10, -bSize);
-          ctx.bezierCurveTo(80, -bSize, 100, -bSize/3, 10, 0);
-          ctx.bezierCurveTo(100, bSize/3, 80, bSize, 10, bSize);
+          ctx.moveTo(10, -bSize); ctx.lineTo(75, -bSize); ctx.lineTo(110, -40); ctx.lineTo(50, -15); ctx.lineTo(20, 0);
+          ctx.lineTo(50, 15); ctx.lineTo(110, 40); ctx.lineTo(75, bSize); ctx.lineTo(10, bSize);
           ctx.stroke();
           
           ctx.lineWidth = 3;
@@ -1175,31 +1169,30 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         // Head / Crystal Design
         if (isCommonW) {
           ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(10, 0); ctx.lineTo(0, 10); ctx.lineTo(-10, 0); ctx.fill();
-          // Simple crescent
-          ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.arc(0, 0, 15, -Math.PI/2, Math.PI/2); ctx.stroke();
+          // Simple angular crescent
+          ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2; ctx.lineJoin = 'miter';
+          ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(15, -10); ctx.lineTo(20, 0); ctx.lineTo(15, 10); ctx.lineTo(0, 15); ctx.stroke();
         }
         else if (isUncommonW) {
-          // Wrapped leaves
+          // Sharp leaves/crystals
           ctx.fillStyle = '#22c55e';
           ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(12, 0); ctx.lineTo(0, 15); ctx.lineTo(-12, 0); ctx.fill();
-          ctx.strokeStyle = '#14532d'; ctx.lineWidth = 3;
-          ctx.beginPath(); ctx.moveTo(-15, 0); ctx.quadraticCurveTo(5, -20, 20, -5); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(-15, 0); ctx.quadraticCurveTo(5, 20, 20, 5); ctx.stroke();
+          ctx.fillStyle = '#14532d';
+          ctx.beginPath(); ctx.moveTo(-10, 0); ctx.lineTo(10, -20); ctx.lineTo(25, -5); ctx.lineTo(15, -2); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(-10, 0); ctx.lineTo(10, 20); ctx.lineTo(25, 5); ctx.lineTo(15, 2); ctx.fill();
         }
         else if (isRareW) {
-          // Ice crescent
+          // Ice shards
           ctx.shadowBlur = 10; ctx.shadowColor = '#60a5fa';
           ctx.fillStyle = '#bfdbfe';
           ctx.beginPath(); ctx.moveTo(0, -18); ctx.lineTo(15, 0); ctx.lineTo(0, 18); ctx.lineTo(-15, 0); ctx.fill();
           ctx.fillStyle = '#2563eb';
-          ctx.beginPath();
-          ctx.moveTo(-10, 25); ctx.quadraticCurveTo(20, 0, -10, -25);
-          ctx.quadraticCurveTo(35, 0, -10, 25); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(-10, 25); ctx.lineTo(15, 10); ctx.lineTo(40, 25); ctx.lineTo(20, 0); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(-10, -25); ctx.lineTo(15, -10); ctx.lineTo(40, -25); ctx.lineTo(20, 0); ctx.fill();
           ctx.shadowBlur = 0;
         }
         else if (isEpicW) {
-          // Floating crystal & dark claws
+          // Floating crystal & dark claws (polygonal)
           ctx.rotate(time * 0.002);
           ctx.shadowBlur = 15; ctx.shadowColor = '#d8b4fe';
           ctx.fillStyle = '#e9d5ff';
@@ -1208,13 +1201,13 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
 
           ctx.fillStyle = '#581c87';
           // Top claw
-          ctx.beginPath(); ctx.moveTo(-10, -30); ctx.quadraticCurveTo(25, -20, 10, -5); ctx.quadraticCurveTo(35, -30, -10, -30); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(-10, -10); ctx.lineTo(15, -25); ctx.lineTo(35, -20); ctx.lineTo(20, -5); ctx.fill();
           // Bottom claw
-          ctx.beginPath(); ctx.moveTo(-10, 30); ctx.quadraticCurveTo(25, 20, 10, 5); ctx.quadraticCurveTo(35, 30, -10, 30); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(-10, 10); ctx.lineTo(15, 25); ctx.lineTo(35, 20); ctx.lineTo(20, 5); ctx.fill();
           ctx.shadowBlur = 0;
         }
         else if (isLegendaryW) {
-          // Sun rings and huge gem
+          // Angular rings and huge gem
           ctx.rotate(time * 0.001);
           ctx.shadowBlur = 20; ctx.shadowColor = '#fde047';
           ctx.fillStyle = '#ffffff';
@@ -1222,15 +1215,18 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           
           ctx.fillStyle = '#ca8a04';
           for (let i = 0; i < 4; i++) {
-             ctx.beginPath(); ctx.moveTo(25, -5); ctx.lineTo(40, 0); ctx.lineTo(25, 5); ctx.fill();
+             ctx.beginPath(); ctx.moveTo(25, -5); ctx.lineTo(45, 0); ctx.lineTo(25, 5); ctx.fill();
              ctx.rotate(Math.PI/2);
           }
-          ctx.strokeStyle = '#fef08a'; ctx.lineWidth = 3;
-          ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI*2); ctx.stroke();
+          ctx.strokeStyle = '#fef08a'; ctx.lineWidth = 3; ctx.lineJoin = 'miter';
+          ctx.beginPath();
+          ctx.moveTo(30, 0); ctx.lineTo(21, 21); ctx.lineTo(0, 30); ctx.lineTo(-21, 21);
+          ctx.lineTo(-30, 0); ctx.lineTo(-21, -21); ctx.lineTo(0, -30); ctx.lineTo(21, -21); ctx.closePath();
+          ctx.stroke();
           ctx.shadowBlur = 0;
         }
         else if (isMythicW) {
-          // Fiery twisting head
+          // Fiery twisting head -> Spiky fire
           ctx.shadowBlur = 25; ctx.shadowColor = '#ef4444';
           ctx.fillStyle = '#fca5a5';
           ctx.beginPath(); ctx.moveTo(0, -30); ctx.lineTo(20, 0); ctx.lineTo(0, 30); ctx.lineTo(-20, 0); ctx.fill();
@@ -1238,15 +1234,14 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           ctx.fillStyle = '#7f1d1d';
           for(let i=0; i<3; i++) {
              ctx.beginPath(); 
-             ctx.moveTo(-15, 0); ctx.bezierCurveTo(40, -40, 10, 30, 35, 0);
-             ctx.bezierCurveTo(15, 50, 45, -20, -15, 0); ctx.fill();
+             ctx.moveTo(-15, 0); ctx.lineTo(20, -25); ctx.lineTo(45, 10); ctx.lineTo(35, 0); ctx.lineTo(10, 25); ctx.fill();
              ctx.rotate(Math.PI * 2 / 3);
           }
-          // Extra floating red sparks
+          // Extra floating red sparks -> angular sparks
           ctx.rotate(time * 0.005);
           ctx.fillStyle = '#ef4444';
           for (let i=0; i<6; i++) {
-             ctx.beginPath(); ctx.arc(35, 0, 4, 0, Math.PI*2); ctx.fill();
+             ctx.beginPath(); ctx.moveTo(35, -4); ctx.lineTo(39, 0); ctx.lineTo(35, 4); ctx.lineTo(31, 0); ctx.fill();
              ctx.rotate(Math.PI / 3);
           }
           ctx.shadowBlur = 0;
@@ -1310,7 +1305,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         if (isEpicW || isLegendaryW || isMythicW || isUltraW) {
           ctx.moveTo(-22, 0); ctx.lineTo(-27, -5); ctx.lineTo(-32, 0); ctx.lineTo(-27, 5); ctx.fill();
         } else {
-          ctx.arc(-22, 0, 4, 0, Math.PI*2); ctx.fill();
+          ctx.moveTo(-18, 0); ctx.lineTo(-22, -4); ctx.lineTo(-26, 0); ctx.lineTo(-22, 4); ctx.fill();
         }
 
         // --- Blade & Crossguard ---
@@ -1347,7 +1342,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           ctx.lineTo(-10, 15); ctx.lineTo(-5, 25); ctx.lineTo(10, 25); ctx.fill();
         }
         else if (isEpicW) {
-          // Purple, evil curvy guard, magical
+          // Purple, evil sharp guard, magical
           ctx.shadowBlur = 10; ctx.shadowColor = '#d8b4fe';
           const grad = ctx.createLinearGradient(0, 0, bLen, 0);
           grad.addColorStop(0, '#9333ea'); grad.addColorStop(1, '#f3e8ff');
@@ -1360,11 +1355,11 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           // Guard
           ctx.fillStyle = '#7e22ce';
           ctx.beginPath(); ctx.moveTo(0, 0); 
-          ctx.bezierCurveTo(15, -15, 20, -30, 0, -35); ctx.lineTo(-5, -20);
+          ctx.lineTo(20, -25); ctx.lineTo(0, -35); ctx.lineTo(-5, -20);
           ctx.lineTo(-10, 0); ctx.lineTo(-5, 20); ctx.lineTo(0, 35);
-          ctx.bezierCurveTo(20, 30, 15, 15, 0, 0); ctx.fill();
+          ctx.lineTo(20, 25); ctx.fill();
           // Gem
-          ctx.fillStyle = '#f3e8ff'; ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#f3e8ff'; ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(5, 0); ctx.lineTo(0, 5); ctx.lineTo(-5, 0); ctx.fill();
         }
         else if (isLegendaryW) {
           // Gold, wide flared guard, glowing
@@ -1408,13 +1403,13 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           ctx.rotate(-time * 0.002);
           ctx.strokeStyle = 'rgba(168, 85, 247, 0.4)';
           ctx.lineWidth = 1;
-          ctx.beginPath(); ctx.arc(bLen/2, 0, 40, 0, Math.PI*2); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(0, 40); ctx.lineTo(40, 0); ctx.lineTo(0, -40); ctx.closePath(); ctx.stroke();
           ctx.rotate(Math.PI/3);
           ctx.strokeStyle = 'rgba(45, 212, 191, 0.4)';
-          ctx.beginPath(); ctx.ellipse(bLen/2 * 0.8, 0, 50, 15, 0, 0, Math.PI*2); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(-50, 0); ctx.lineTo(0, 15); ctx.lineTo(50, 0); ctx.lineTo(0, -15); ctx.closePath(); ctx.stroke();
           ctx.rotate(Math.PI/3);
           ctx.strokeStyle = 'rgba(236, 72, 153, 0.4)';
-          ctx.beginPath(); ctx.ellipse(bLen/2 * 0.8, 0, 50, 15, 0, 0, Math.PI*2); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(-60, 0); ctx.lineTo(0, 10); ctx.lineTo(60, 0); ctx.lineTo(0, -10); ctx.closePath(); ctx.stroke();
           ctx.restore();
           
           ctx.shadowBlur = 25; ctx.shadowColor = '#a855f7';
@@ -1485,22 +1480,27 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    const camX = player.x - canvas.width / 2;
-    const camY = player.y - canvas.height / 2;
+    // Scale for mobile to see more of the world
+    const scaleFactor = canvas.width < 600 ? 0.65 : 1.0;
+    
+    const camX = player.x - (canvas.width / scaleFactor) / 2;
+    const camY = player.y - (canvas.height / scaleFactor) / 2;
+
+    ctx.save();
+    ctx.scale(scaleFactor, scaleFactor);
 
     // Draw Background Pattern (Procedural)
     if (groundPattern.current) {
         ctx.save();
         ctx.translate(-camX % 512, -camY % 512);
         ctx.fillStyle = groundPattern.current;
-        ctx.fillRect(-512, -512, canvas.width + 1024, canvas.height + 1024);
+        ctx.fillRect(-512, -512, (canvas.width / scaleFactor) + 1024, (canvas.height / scaleFactor) + 1024);
         ctx.restore();
     } else {
       ctx.fillStyle = currentLocation.color;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillRect(camX, camY, canvas.width / scaleFactor, canvas.height / scaleFactor);
     }
 
-    ctx.save();
     ctx.translate(-camX, -camY);
 
     // Grid
@@ -1748,11 +1748,12 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     const clickY = e.clientY - rect.top;
 
     const state = useGameStore.getState();
-    const camX = state.player.x - canvas.width / 2;
-    const camY = state.player.y - canvas.height / 2;
+    const scaleFactor = canvas.width < 600 ? 0.65 : 1.0;
+    const camX = state.player.x - (canvas.width / scaleFactor) / 2;
+    const camY = state.player.y - (canvas.height / scaleFactor) / 2;
 
-    const worldX = clickX + camX;
-    const worldY = clickY + camY;
+    const worldX = (clickX / scaleFactor) + camX;
+    const worldY = (clickY / scaleFactor) + camY;
 
     let targetFound = false;
 

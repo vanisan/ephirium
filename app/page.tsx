@@ -60,7 +60,7 @@ export default function GamePage() {
             {/* Control Layer */}
             <div className="absolute inset-0 pointer-events-none">
               {/* Joystick Position (Bottom Left) */}
-              <div className="absolute bottom-28 left-6 sm:bottom-12 sm:left-12 pointer-events-auto">
+              <div className="absolute bottom-20 left-4 sm:bottom-12 sm:left-12 pointer-events-auto">
                 <Joystick onMove={(dx, dy) => { velocity.current = { x: dx, y: dy }; }} />
               </div>
             </div>
