@@ -67,6 +67,34 @@
         "lastAction": { "type": "object" },
         "updatedAt": { "type": "string", "format": "date-time" }
       }
+    },
+    "WorldPlayer": {
+      "title": "World Player",
+      "description": "Public player data for multiplayer sync",
+      "type": "object",
+      "properties": {
+        "locationId": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "hp": { "type": "number" },
+        "maxHp": { "type": "number" },
+        "level": { "type": "number" },
+        "nickname": { "type": "string" },
+        "updatedAt": { "type": "number" }
+      }
+    },
+    "Mob": {
+      "title": "World Mob",
+      "description": "Shared enemy data",
+      "type": "object",
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "hp": { "type": "number" },
+        "maxHp": { "type": "number" },
+        "level": { "type": "number" },
+        "type": { "type": "string" }
+      }
     }
   },
   "firestore": {
@@ -77,6 +105,14 @@
     "/rooms/{roomId}": {
       "schema": "Room",
       "description": "PvP match rooms"
+    },
+    "/worldPlayers/{userId}": {
+      "schema": "WorldPlayer",
+      "description": "Public player presence"
+    },
+    "/worldMobs/{locationId}/mobs/{mobId}": {
+      "schema": "Mob",
+      "description": "Shared mobs mapping"
     }
   }
 }

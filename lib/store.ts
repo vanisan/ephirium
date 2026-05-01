@@ -210,6 +210,7 @@ interface GameState {
   increaseStat: (stat: 'str' | 'dex' | 'int') => void;
   setAvatarUrl: (url: string) => void;
   setSkinColor: (color: string) => void;
+  setEnemies: (enemies: Enemy[]) => void;
   teleport: (locationId: string) => void;
   buyInShop: (itemId: string, quantity: number) => void;
   buyBuff: (buff: Omit<Buff, 'timeLeft'>, cost: number) => void;
@@ -226,7 +227,13 @@ export function generateRandomItem(level: number, rarity: string, forcedType?: s
     
     // Level constraints based on rarity
     const reqLevels: Record<string, number> = {
-      common: 5, uncommon: 10, rare: 15, epic: 30, legendary: 40, mythic: 50, ultra: 65
+      common: 1, 
+      uncommon: 3, 
+      rare: 5, 
+      epic: 15, 
+      legendary: 30, 
+      mythic: 45, 
+      ultra: 60
     };
     const finalLevel = reqLevels[rarity] || level;
 
@@ -709,10 +716,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   }),
   equipItem: (item) => set((state) => {
     const type = item.type;
-    const reqLevels: Record<string, number> = {
-      common: 5, uncommon: 10, rare: 15, epic: 30, legendary: 40, mythic: 50, ultra: 65
-    };
-    if (state.player.level < (reqLevels[item.rarity] || 0)) {
+    
+    // Check level requirement
+    if (state.player.level < (item.level || 1)) {
        return state;
     }
     
@@ -884,6 +890,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   }),
   setAvatarUrl: (url) => set((state) => ({ player: { ...state.player, avatarUrl: url } })),
   setSkinColor: (color) => set((state) => ({ player: { ...state.player, skinColor: color } })),
+  setEnemies: (enemies) => set({ enemies }),
   openChest: () => set((state) => {
     if (state.dungeonState.chestOpened) return state;
     const shardsReward = 5000 + Math.floor(Math.random() * 5000);

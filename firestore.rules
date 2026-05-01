@@ -65,8 +65,37 @@ service cloud.firestore {
       allow list: if isSignedIn();
       
       allow create: if isOwner(userId) && isValidWorldPlayer(incoming());
-      allow update: if isSignedIn() && isValidWorldPlayer(incoming()); // Allow PVP damage
+      allow update: if isSignedIn() && (isOwner(userId) || incoming().diff(existing()).affectedKeys().hasOnly(['hp'])); // Allow others to damage
       allow delete: if isOwner(userId);
+    }
+
+    // World Mobs
+    function isValidMob(data) {
+      return data.keys().hasAll(['x', 'y', 'hp', 'maxHp', 'level', 'type']) &&
+             data.x is number &&
+             data.y is number &&
+             data.hp is number &&
+             data.maxHp is number &&
+             data.level is number &&
+             data.type is string;
+    }
+
+    match /worldMobs/{locationId} {
+      allow get, list: if isSignedIn();
+      
+      match /mobs/{mobId} {
+        allow get, list: if isSignedIn();
+        allow create: if isSignedIn() && isValidMob(incoming());
+        allow update: if isSignedIn() && (
+          // Action: Move (Master only updates x,y)
+          incoming().diff(existing()).affectedKeys().hasOnly(['x', 'y']) ||
+          // Action: Damage (Anyone can update hp)
+          incoming().diff(existing()).affectedKeys().hasOnly(['hp']) ||
+          // Full update
+          isValidMob(incoming())
+        );
+        allow delete: if isSignedIn();
+      }
     }
     function isValidRoom(data) {
       return data.host is map &&
