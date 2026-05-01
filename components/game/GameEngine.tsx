@@ -54,6 +54,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
   const requestRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
   const lastAttackTime = useRef<number>(0);
+  const lastAttackDate = useRef<number>(0);
   const lastEnemyAttackTime = useRef<number>(0);
   const lastRespawnTime = useRef<number>(0);
   const lastBuffUpdateTime = useRef<number>(0);
@@ -64,7 +65,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
   const projectiles = useRef<Projectile[]>([]);
   const rotationRef = useRef<number>(0);
   const attackEffect = useRef<{ angle: number, progress: number, type: 'melee' | 'ranged' | 'magic' } | null>(null);
-  const onlinePlayersCache = useRef<Map<string, { x: number, y: number, r: number, tx: number, ty: number, tr: number }>>(new Map());
+  const onlinePlayersCache = useRef<Map<string, { x: number, y: number, r: number, tx: number, ty: number, tr: number, lastAction?: number, effect?: { progress: number, type: 'melee' | 'ranged' | 'magic', angle: number } | null }>>(new Map());
 
   // Constants
   const PLAYER_SPEED = 4.5;
@@ -179,13 +180,23 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           const ty = data.y;
           const tr = data.rotation || 0;
           
+          let lastAction = data.actionTime || 0;
+
           if (!onlinePlayersCache.current.has(id)) {
-            onlinePlayersCache.current.set(id, { x: tx, y: ty, r: tr, tx, ty, tr });
+            onlinePlayersCache.current.set(id, { x: tx, y: ty, r: tr, tx, ty, tr, lastAction, effect: null });
           } else {
             const entry = onlinePlayersCache.current.get(id)!;
             entry.tx = tx;
             entry.ty = ty;
             entry.tr = tr;
+            if (lastAction > (entry.lastAction || 0)) {
+               entry.lastAction = lastAction;
+               entry.effect = {
+                  progress: 0,
+                  type: (data.equipment?.weapon?.icon === 'bow' || data.equipment?.weapon?.icon === 'staff') ? (data.equipment.weapon.icon === 'bow' ? 'ranged' : 'magic') : 'melee',
+                  angle: tr
+               };
+            }
           }
 
           players.push({
@@ -246,6 +257,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           rotation: rotationRef.current || 0,
           equipment: sanitizedEquipment,
           aura: sanitizedAura,
+          actionTime: lastAttackDate.current || 0,
           updatedAt: Date.now()
         }, { merge: true });
       } catch (e) {
@@ -267,14 +279,15 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     const { player, enemies, isAutoBattle, updatePlayerPos, damageEnemy, spawnEnemy, damagePlayer, gainExp, healPlayer } = state;
 
     // HP Regen
-    if (player.stats.hpRegen && player.stats.hpRegen > 0) {
-       if (time - lastRegenTime.current > 1000) {
-          healPlayer(player.stats.hpRegen);
-          lastRegenTime.current = time;
-       }
-    }
+    if (!state.isDead) {
+      if (player.stats.hpRegen && player.stats.hpRegen > 0) {
+         if (time - lastRegenTime.current > 1000) {
+            healPlayer(player.stats.hpRegen);
+            lastRegenTime.current = time;
+         }
+      }
 
-    // Aura Damage
+      // Aura Damage
     const aura = state.equipment.aura;
     if (aura && time - lastAuraTickTime.current > 1000) {
        const auraRadius = aura.rarity === 'ultra' ? 200 : aura.rarity === 'mythic' ? 150 : aura.rarity === 'legendary' ? 120 : aura.rarity === 'epic' ? 100 : 80;
@@ -371,6 +384,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
               // Melee attack logic -> handled in the condition
               let realTargetId = target.id;
               if (target.isPlayer) {
+                  realTargetId = realTargetId.replace('player_', '');
                   const targetRef = doc(db, 'worldPlayers', realTargetId);
                   // Read and update their HP
                   import('firebase/firestore').then(({ getDoc, updateDoc }) => {
@@ -417,6 +431,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
             }
 
             lastAttackTime.current = time;
+             lastAttackDate.current = Date.now();
           }
         } else if (isAutoBattle && (velocity.current?.x || 0) === 0 && (velocity.current?.y || 0) === 0) {
           // Auto-move towards target
@@ -517,8 +532,9 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           enemy.y += Math.sin(angle) * 2.8;
         }
       });
-  
-      // 4. Update Animations & Effects
+    }
+
+    // 4. Update Animations & Effects
       if (attackEffect.current) {
         attackEffect.current.progress += (attackEffect.current.type === 'melee' ? 0.15 : 0.25);
         if (attackEffect.current.progress >= 1.0) {
@@ -624,18 +640,24 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         while (diff < -Math.PI) diff += Math.PI * 2;
         while (diff > Math.PI) diff -= Math.PI * 2;
         val.r += diff * 0.2;
+
+        if (val.effect) {
+           val.effect.progress += (val.effect.type === 'melee' ? 0.15 : 0.25);
+           if (val.effect.progress >= 1.0) val.effect = null;
+        }
       });
 
     // 6. Logic Timers
-    const timeSinceLastSpawn = time - lastRespawnTime.current;
-    const timeSinceLastBuffUpdate = time - (lastBuffUpdateTime.current || 0);
+    if (!state.isDead) {
+      const timeSinceLastSpawn = time - lastRespawnTime.current;
+      const timeSinceLastBuffUpdate = time - (lastBuffUpdateTime.current || 0);
 
-    if (timeSinceLastBuffUpdate > 1000) {
-      state.updateBuffs();
-      lastBuffUpdateTime.current = time;
-    }
+      if (timeSinceLastBuffUpdate > 1000) {
+        state.updateBuffs();
+        lastBuffUpdateTime.current = time;
+      }
 
-    if (timeSinceLastSpawn > 2000) {
+      if (timeSinceLastSpawn > 2000) {
       const location = state.locations.find(l => l.id === state.currentLocationId) || state.locations[0];
       const isDungeon = location.isDungeon;
       
@@ -653,7 +675,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
                 type: 'boss'
               });
            }
-           if (nearbyEnemies.length < 15) {
+           if (enemies.length < 15) {
               for (let i = 0; i < 5; i++) {
                 const spawnX = Math.max(player.x + 300, Math.min(8000, player.x + 300 + Math.random() * 800));
                 const spawnY = Math.max(200, Math.min(800, player.y + (Math.random() - 0.5) * 400));
@@ -671,8 +693,8 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
            }
         }
       } else {
-        if (nearbyEnemies.length < 15) {
-            const spawnCount = nearbyEnemies.length < 5 ? 5 : 2; 
+        if (enemies.length < 15) {
+            const spawnCount = enemies.length < 5 ? 5 : 2; 
             for (let i = 0; i < spawnCount; i++) {
               const angle = Math.random() * Math.PI * 2;
               const dist = 300 + Math.random() * 400; // Even closer spawn range
@@ -690,6 +712,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
           }
       }
       lastRespawnTime.current = time;
+      }
     }
 
     draw(useGameStore.getState(), time);
@@ -722,6 +745,10 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     
     ctx.save();
     ctx.translate(x, y);
+
+    if (hp <= 0) {
+      ctx.globalAlpha = 0.4;
+    }
 
     // 1. AURA RENDERING (Subtle layer)
     if (aura) {
@@ -1451,20 +1478,29 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     ctx.restore(); // End char rotated layer
 
     // 3. HUD LAYER (Name & HP)
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(-22, -42, 44, 8);
-    ctx.fillStyle = isMain ? '#10b981' : '#3b82f6';
-    ctx.fillRect(-22, -42, (hp / maxHp) * 44, 8);
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(-22, -42, 44, 8);
-    
-    ctx.font = 'bold 12px Cinzel';
-    ctx.fillStyle = isMain ? '#fff' : '#fef3c7';
-    ctx.textAlign = 'center';
-    ctx.shadowBlur = 4; ctx.shadowColor = 'black';
-    ctx.fillText(`Lv.${level} ${nickname}`, 0, -48);
-    ctx.shadowBlur = 0;
+    if (hp > 0) {
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(-22, -42, 44, 8);
+      ctx.fillStyle = isMain ? '#10b981' : '#3b82f6';
+      ctx.fillRect(-22, -42, (hp / maxHp) * 44, 8);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-22, -42, 44, 8);
+      
+      ctx.font = 'bold 12px Cinzel';
+      ctx.fillStyle = isMain ? '#fff' : '#fef3c7';
+      ctx.textAlign = 'center';
+      ctx.shadowBlur = 4; ctx.shadowColor = 'black';
+      ctx.fillText(`Lv.${level} ${nickname}`, 0, -48);
+      ctx.shadowBlur = 0;
+    } else {
+      ctx.font = 'bold 14px Cinzel';
+      ctx.fillStyle = '#ef4444';
+      ctx.textAlign = 'center';
+      ctx.shadowBlur = 4; ctx.shadowColor = 'black';
+      ctx.fillText(`M.I.A.`, 0, -28);
+      ctx.shadowBlur = 0;
+    }
 
     ctx.restore(); // End translate
   };
@@ -1597,6 +1633,35 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
         pSkin,
         time
       );
+
+      // Render their attack effect if exists
+      if (interp?.effect) {
+         ctx.save();
+         ctx.translate(drawX, drawY);
+         if (interp.effect.type === 'melee') {
+            ctx.rotate(interp.effect.angle);
+            const pr = interp.effect.progress;
+            ctx.beginPath();
+            ctx.strokeStyle = `rgba(255, 220, 100, ${Math.max(0, 1.0 - pr)})`;
+            ctx.lineWidth = 15 * (1 - pr);
+            ctx.arc(0, 0, 60, -0.8 + 1.2 * pr, -0.4 + 1.2 * pr);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.strokeStyle = `rgba(255, 50, 50, ${Math.max(0, 0.5 - pr * 0.5)})`;
+            ctx.lineWidth = 30 * (1 - pr);
+            ctx.arc(0, 0, 70, -0.8 + 1.2 * pr, -0.2 + 1.2 * pr);
+            ctx.stroke();
+         } else {
+            const pr = interp.effect.progress;
+            ctx.beginPath();
+            ctx.arc(0, 0, 30 + pr * 30, 0, Math.PI * 2);
+            ctx.fillStyle = interp.effect.type === 'magic' ? `rgba(139, 92, 246, ${1 - pr})` : `rgba(250, 204, 21, ${1 - pr})`;
+            ctx.fill();
+         }
+         ctx.restore();
+      }
+
     });
 
     // Player
@@ -1771,6 +1836,7 @@ export const GameEngine: React.FC<GameEngineProps> = React.memo(({ velocity }) =
     if (!targetFound) {
       // Check online players
       for (const p of state.onlinePlayers || []) {
+        if (p.hp <= 0) continue;
         const dist = Math.hypot(p.x - worldX, p.y - worldY);
         // players radius is around 20 for body + buffer
         if (dist <= 35) {

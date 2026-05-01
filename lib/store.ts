@@ -118,6 +118,7 @@ export interface OnlinePlayer {
   equipment?: any;
   aura?: any;
   skinColor?: string;
+  actionTime?: number;
 }
 
 interface GameState {
@@ -521,7 +522,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           player: initialPlayer,
           equipment: loadedEquipment,
           inventory: uniqueInventory,
-          currentLocationId: data.currentLocationId || 'forest'
+          currentLocationId: data.currentLocationId || 'forest',
+          isDead: initialPlayer.hp <= 0
         });
       }
     } catch (e) {
@@ -607,7 +609,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       statPoints: newStatPoints,
       nextLevelExp: newNextLevelExp,
       stats: newStats,
-      hp: 1 
+      hp: 1,
+      x: 500,
+      y: 500
     }, state.equipment);
     
     updatedPlayer.hp = updatedPlayer.maxHp;
@@ -679,21 +683,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
       
       const droppedItems: Item[] = [];
-      if (Math.random() < 0.03 || isBoss) {
-         let dropRarity = 'uncommon';
-         if (isBoss) dropRarity = Math.random() > 0.8 ? 'ultra' : Math.random() > 0.2 ? 'mythic' : 'legendary';
-         else if (Math.random() < 0.01) dropRarity = 'mythic';
-         else if (Math.random() < 0.05) dropRarity = 'legendary';
-         else if (Math.random() < 0.2) dropRarity = 'epic';
-         else if (Math.random() < 0.5) dropRarity = 'rare';
-         
-         droppedItems.push(generateRandomItem(enemy.level, dropRarity));
-      }
 
       return {
         enemies: state.enemies.filter(e => e.id !== id),
         ...(isBoss ? { dungeonState: { ...state.dungeonState, bossDefeated: true } } : {}),
-        inventory: [...state.inventory, ...droppedItems],
+        inventory: [...state.inventory],
         player: { 
           ...state.player, 
           exp: newExp,
